@@ -6,11 +6,10 @@ default-run = "vetoc"    # ← добавить эту строку
 
 [features]
 default = ["inquisitor"]
-inquisitor = ["dep:rusqlite", "dep:serde_json"]
+inquisitor = ["dep:rusqlite"]
 
 [dependencies]
 rusqlite   = { version = "0.32", features = ["bundled"], optional = true }
-serde_json = { version = "1.0", optional = true }
 
 # ── библиотечная часть (нужна, чтобы bin/train_inquisitor мог делать use vetoc::...)
 [lib]

@@ -455,7 +455,7 @@ fn eval_expr_range(
             match op.as_str() {
                 "+" => (l1.saturating_add(l2), h1.saturating_add(h2)),
                 "-" => (l1.saturating_sub(h2), h1.saturating_sub(l2)),
-                "" => {
+                "*" => {
                     let candidates = [
                         l1.saturating_mul(l2),
                         l1.saturating_mul(h2),

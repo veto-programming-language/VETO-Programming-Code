@@ -9,7 +9,9 @@ fn main() -> i32<0..255> {
     return speed + boost;
 }
 "#;
-    let cond = std::env::args().nth(1).unwrap_or("speed + boost < 200".into());
+    let cond = std::env::args()
+        .nth(1)
+        .unwrap_or("speed + boost < 200".into());
     let mut inq = Inquisitor::new(&cond, source);
     match inq.auto_prove() {
         Verdict::Approve => println!("\n>>> одобрено"),

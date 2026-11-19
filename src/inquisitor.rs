@@ -145,15 +145,18 @@ impl Inquisitor {
             return "«Не знаю» — это не доказательство, это признание в некомпетентности. \
                     Компилятор не гадает. Докажи или иди читай учебник по дискретке.";
         }
-        if p.contains("работает") || p.contains("проверял") || p.contains("тестировал") {
+        if p.contains("работает") || p.contains("проверял") || p.contains("тестировал")
+        {
             return "«Работает у меня на машине» — это не математика, это лотерея. \
                     У меня на машине твой код упадёт при первом же edge case. Докажи формально.";
         }
-        if p.contains("честно") || p.contains("поверь") || p.contains("доверься") {
+        if p.contains("честно") || p.contains("поверь") || p.contains("доверься")
+        {
             return "Я не верю. Я — компилятор. У меня нет веры, у меня есть только аксиомы. \
                     Дай мне аксиомы, а не слово чести.";
         }
-        if p.contains("вроде") || p.contains("наверное") || p.contains("кажется") {
+        if p.contains("вроде") || p.contains("наверное") || p.contains("кажется")
+        {
             return "«Вроде» и «наверное» — это язык для обсуждения погоды, не безопасности памяти. \
                     Мне нужна уверенность, а не догадки.";
         }
@@ -166,10 +169,14 @@ impl Inquisitor {
 
         // Есть цифры, но нет логики — придираемся
         let has_digits = p.chars().any(|c| c.is_ascii_digit());
-        let has_logic = p.contains("=>") || p.contains("следовательно")
-                     || p.contains("следует") || p.contains("тогда")
-                     || p.contains("отсюда") || p.contains("∈")
-                     || p.contains("∀") || p.contains("⊂");
+        let has_logic = p.contains("=>")
+            || p.contains("следовательно")
+            || p.contains("следует")
+            || p.contains("тогда")
+            || p.contains("отсюда")
+            || p.contains("∈")
+            || p.contains("∀")
+            || p.contains("⊂");
         if has_digits && !has_logic {
             return "Ты кинул числа, но не связал их логикой. Числа без связки — это набор \
                     цифр, а не доказательство. Где переход от посылки к следствию?";
@@ -237,7 +244,10 @@ impl Inquisitor {
 
         let mut attempts = 0usize;
         while attempts < 3 {
-            print!("\n[попытка {}/3] Твой аргумент (или 'fix' для отмены) > ", attempts + 1);
+            print!(
+                "\n[попытка {}/3] Твой аргумент (или 'fix' для отмены) > ",
+                attempts + 1
+            );
             io::stdout().flush().ok();
 
             let mut input = String::new();
@@ -248,8 +258,10 @@ impl Inquisitor {
             let proof = input.trim().to_string();
 
             if proof.is_empty() || proof == "fix" {
-                println!("\n[VETO] «fix» — единственное честное слово за весь суд. \
-                         Иди переписывай код, я подожду.");
+                println!(
+                    "\n[VETO] «fix» — единственное честное слово за весь суд. \
+                         Иди переписывай код, я подожду."
+                );
                 return Verdict::Reject;
             }
 
@@ -263,16 +275,21 @@ impl Inquisitor {
             if local_ok && conf >= 0.85 {
                 self.record_sin(&proof);
                 self.cache_approve();
-                println!("\n[APPROVE] Ладно. На этот раз поверил. \
-                         Модель уверена на {:.0}%. Сборка продолжается.", conf * 100.0);
+                println!(
+                    "\n[APPROVE] Ладно. На этот раз поверил. \
+                         Модель уверена на {:.0}%. Сборка продолжается.",
+                    conf * 100.0
+                );
                 return Verdict::Approve;
             }
 
             // Отказ — с характером
             println!("\n[VETO] {}", self.mock_reply(&proof));
             if conf < 0.4 {
-                println!("  (модель уверена на {:.0}%, что это отмазка. Ты не стараешься.)",
-                         (1.0 - conf) * 100.0);
+                println!(
+                    "  (модель уверена на {:.0}%, что это отмазка. Ты не стараешься.)",
+                    (1.0 - conf) * 100.0
+                );
             }
 
             attempts += 1;

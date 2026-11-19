@@ -1,7 +1,7 @@
 // src/lib.rs
 
-pub mod lexer;
 pub mod compiler;
+pub mod lexer;
 pub mod proofgen;
 
 #[cfg(feature = "inquisitor")]

@@ -4,7 +4,14 @@ use vetoc::inquisitor_model::{heuristic_judge, MiniModel};
 
 fn main() {
     let model = MiniModel::load();
-    println!("{}", if model.is_some() { "[test] модель загружена" } else { "[test] .bin не найден, работает эвристика" });
+    println!(
+        "{}",
+        if model.is_some() {
+            "[test] модель загружена"
+        } else {
+            "[test] .bin не найден, работает эвристика"
+        }
+    );
     println!("[test] формат: `1|текст` (ждём approve), `0|текст` (ждём veto)\n");
 
     let (mut total, mut ok) = (0usize, 0usize);
@@ -34,11 +41,28 @@ fn main() {
             Some(e) => {
                 total += 1;
                 let good = e == approve;
-                if good { ok += 1; }
-                println!("{} {} conf={:.2}  {}", if good { "OK  " } else { "FAIL" }, verdict, conf, text);
+                if good {
+                    ok += 1;
+                }
+                println!(
+                    "{} {} conf={:.2}  {}",
+                    if good { "OK  " } else { "FAIL" },
+                    verdict,
+                    conf,
+                    text
+                );
                 if !good {
-                    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open("manual.csv") {
-                        let _ = writeln!(f, "{},\"{}\"", if e { 1 } else { 0 }, text.replace('"', "\"\""));
+                    if let Ok(mut f) = OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("manual.csv")
+                    {
+                        let _ = writeln!(
+                            f,
+                            "{},\"{}\"",
+                            if e { 1 } else { 0 },
+                            text.replace('"', "\"\"")
+                        );
                         println!("      ^ записано в manual.csv");
                     }
                 }
@@ -51,7 +75,11 @@ fn main() {
                 stdin.lock().read_line(&mut ans).ok();
                 if ans.trim() == "n" {
                     let correct = if approve { 0 } else { 1 }; // раз вердикт неверный, метка обратная
-                    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open("manual.csv") {
+                    if let Ok(mut f) = OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("manual.csv")
+                    {
                         let _ = writeln!(f, "{},\"{}\"", correct, text.replace('"', "\"\""));
                         println!("      ^ записано в manual.csv (метка {})", correct);
                     }
@@ -60,6 +88,11 @@ fn main() {
         }
     }
     if total > 0 {
-        println!("\n[test] верно {}/{} ({:.0}%)", ok, total, 100.0 * ok as f32 / total as f32);
+        println!(
+            "\n[test] верно {}/{} ({:.0}%)",
+            ok,
+            total,
+            100.0 * ok as f32 / total as f32
+        );
     }
 }

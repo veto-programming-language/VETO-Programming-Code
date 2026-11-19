@@ -17,12 +17,12 @@ pub const MODEL_PATH: &str = "src/inquisitor_model.bin";
 const MODEL_BYTES: usize = BUCKETS * HIDDEN * 4   // emb
                          + HIDDEN * 2 * 4          // w2
                          + HIDDEN * 4              // b1
-                         + 2 * 4;                  // b2
+                         + 2 * 4; // b2
 
 pub struct MiniModel {
-    pub emb: Vec<f32>,   // [BUCKETS][HIDDEN], row-major
-    pub w2: Vec<f32>,    // [HIDDEN][2]
-    pub b1: Vec<f32>,    // [HIDDEN]
+    pub emb: Vec<f32>, // [BUCKETS][HIDDEN], row-major
+    pub w2: Vec<f32>,  // [HIDDEN][2]
+    pub b1: Vec<f32>,  // [HIDDEN]
     pub b2: [f32; 2],
 }
 
@@ -48,7 +48,12 @@ impl MiniModel {
         let w2 = take(HIDDEN * 2);
         let b1 = take(HIDDEN);
         let b2v = take(2);
-        Some(MiniModel { emb, w2, b1, b2: [b2v[0], b2v[1]] })
+        Some(MiniModel {
+            emb,
+            w2,
+            b1,
+            b2: [b2v[0], b2v[1]],
+        })
     }
 
     /// Сохраняет веса в MODEL_PATH. Формат — плоский LE f32, без заголовков.
@@ -144,23 +149,52 @@ pub fn heuristic_judge(text: &str) -> (bool, f32) {
     let t = text.to_lowercase();
 
     let strong = [
-        "=>", "следовательно", "следует", "пусть ", "для всех", "для любого",
-        "∈", "⊂", "теорема", "доказано", "интервал", "range", "0<=", "0 <=",
-        "мин", "макс", "min", "max", "q.e.d", "ч.т.д", "тогда", "отсюда",
+        "=>",
+        "следовательно",
+        "следует",
+        "пусть ",
+        "для всех",
+        "для любого",
+        "∈",
+        "⊂",
+        "теорема",
+        "доказано",
+        "интервал",
+        "range",
+        "0<=",
+        "0 <=",
+        "мин",
+        "макс",
+        "min",
+        "max",
+        "q.e.d",
+        "ч.т.д",
+        "тогда",
+        "отсюда",
     ];
     let weak = [
-        "хз", "не знаю", "работает", "проверял", "честно", "поверь",
-        "доверься", "норм", "ок", "вроде", "наверное", "точно работает",
-        "я тестировал", "у меня работает", "должно быть",
+        "хз",
+        "не знаю",
+        "работает",
+        "проверял",
+        "честно",
+        "поверь",
+        "доверься",
+        "норм",
+        "ок",
+        "вроде",
+        "наверное",
+        "точно работает",
+        "я тестировал",
+        "у меня работает",
+        "должно быть",
     ];
 
     let digits = t.chars().filter(|c| c.is_ascii_digit()).count();
     let strong_hits = strong.iter().filter(|s| t.contains(*s)).count();
     let weak_hits = weak.iter().filter(|s| t.contains(*s)).count();
 
-    let score = strong_hits as f32 * 1.0
-        + digits.min(6) as f32 * 0.3
-        - weak_hits as f32 * 1.2;
+    let score = strong_hits as f32 * 1.0 + digits.min(6) as f32 * 0.3 - weak_hits as f32 * 1.2;
     let p = 1.0 / (1.0 + (-score).exp());
     (p >= 0.5, p.max(1.0 - p))
 }

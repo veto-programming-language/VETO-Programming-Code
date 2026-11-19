@@ -143,7 +143,11 @@ impl P {
             Some(t) if t.chars().next().map_or(false, |c| c.is_ascii_digit()) => {
                 t.parse::<i128>().map(Expr::Num).map_err(|e| e.to_string())
             }
-            Some(t) if t.chars().next().map_or(false, |c| c.is_alphabetic() || c == '_') => {
+            Some(t)
+                if t.chars()
+                    .next()
+                    .map_or(false, |c| c.is_alphabetic() || c == '_') =>
+            {
                 Ok(Expr::Var(t))
             }
             Some(t) => Err(format!("неожиданный токен '{}'", t)),
@@ -153,7 +157,10 @@ impl P {
 }
 
 fn parse(cond: &str) -> Result<(Expr, String, Expr), String> {
-    let mut p = P { t: lex(cond)?, i: 0 };
+    let mut p = P {
+        t: lex(cond)?,
+        i: 0,
+    };
     let lhs = p.expr()?;
     let op = p.next().ok_or("нет оператора сравнения")?;
     if !["<", "<=", ">", ">=", "==", "!="].contains(&op.as_str()) {
@@ -172,7 +179,10 @@ fn eval(e: &Expr, env: &HashMap<String, Range>, steps: &mut Vec<String>) -> Resu
     match e {
         Expr::Num(n) => Ok((*n, *n)),
         Expr::Var(v) => env.get(v).copied().ok_or_else(|| {
-            format!("для «{}» не объявлены границы (нужен тип вида i32<lo..hi>)", v)
+            format!(
+                "для «{}» не объявлены границы (нужен тип вида i32<lo..hi>)",
+                v
+            )
         }),
         Expr::Bin(a, op, b) => {
             let (l1, h1) = eval(a, env, steps)?;
@@ -214,7 +224,9 @@ pub fn ranges_from_source(src: &str) -> HashMap<String, Range> {
         }
         let after = src[idx + 1..].trim_start();
         let after = after.trim_start_matches(|c: char| c.is_alphanumeric() || c == '_');
-        let Some(rest) = after.strip_prefix('<') else { continue };
+        let Some(rest) = after.strip_prefix('<') else {
+            continue;
+        };
         let Some(end) = rest.find('>') else { continue };
         if let Some((a, b)) = rest[..end].split_once("..") {
             if let (Ok(lo), Ok(hi)) = (a.trim().parse::<i128>(), b.trim().parse::<i128>()) {
@@ -227,7 +239,10 @@ pub fn ranges_from_source(src: &str) -> HashMap<String, Range> {
 
 /// Главная функция: из условия из `prove(...)` и границ строит доказательство.
 pub fn prove(cond: &str, env: &HashMap<String, Range>) -> Report {
-    let unknown = |why: String| Report { outcome: Outcome::Unknown, text: why };
+    let unknown = |why: String| Report {
+        outcome: Outcome::Unknown,
+        text: why,
+    };
 
     let (lhs, op, rhs) = match parse(cond) {
         Ok(x) => x,
@@ -257,14 +272,21 @@ pub fn prove(cond: &str, env: &HashMap<String, Range>) -> Report {
     vars(&rhs, &mut names);
     let given: Vec<String> = names
         .iter()
-        .filter_map(|n| env.get(n).map(|(lo, hi)| format!("{} ∈ [{}..{}]", n, lo, hi)))
+        .filter_map(|n| {
+            env.get(n)
+                .map(|(lo, hi)| format!("{} ∈ [{}..{}]", n, lo, hi))
+        })
         .collect();
     let head = if given.is_empty() {
         String::new()
     } else {
         format!("пусть {}; ", given.join(", "))
     };
-    let chain = if steps.is_empty() { String::new() } else { format!("тогда {}; ", steps.join("; ")) };
+    let chain = if steps.is_empty() {
+        String::new()
+    } else {
+        format!("тогда {}; ", steps.join("; "))
+    };
     let bounds = format!("левая часть ∈ [{}..{}], правая ∈ [{}..{}]", l1, h1, l2, h2);
 
     if proven {

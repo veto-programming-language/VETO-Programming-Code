@@ -46,7 +46,12 @@ fn main() {
         return;
     }
     let pos = data.iter().filter(|(l, _)| *l == 1).count();
-    println!("[train] samples={} (approve={}, veto={})", data.len(), pos, data.len() - pos);
+    println!(
+        "[train] samples={} (approve={}, veto={})",
+        data.len(),
+        pos,
+        data.len() - pos
+    );
 
     // Инициализация весов: маленькие детерминированные числа.
     // Не рандом — чтобы результат сборки был воспроизводим у тебя и у друга.
@@ -78,7 +83,11 @@ fn main() {
                     hidden[i] += model.emb[b * HIDDEN + i];
                 }
             }
-            let inv = if used.is_empty() { 0.0 } else { 1.0 / used.len() as f32 };
+            let inv = if used.is_empty() {
+                0.0
+            } else {
+                1.0 / used.len() as f32
+            };
             for h in hidden.iter_mut() {
                 *h *= inv;
             }
@@ -150,9 +159,14 @@ fn main() {
     model
         .save(Path::new("src/inquisitor_model.bin"))
         .expect("[train] не могу записать src/inquisitor_model.bin");
-    println!("[train] saved -> src/inquisitor_model.bin ({} байт)", file_size());
+    println!(
+        "[train] saved -> src/inquisitor_model.bin ({} байт)",
+        file_size()
+    );
 }
 
 fn file_size() -> u64 {
-    fs::metadata("src/inquisitor_model.bin").map(|m| m.len()).unwrap_or(0)
+    fs::metadata("src/inquisitor_model.bin")
+        .map(|m| m.len())
+        .unwrap_or(0)
 }

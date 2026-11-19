@@ -1,0 +1,52 @@
+// Veto DSP: Микшер звука с математическим доказательством отсутствия перегруза
+use core::arch;
+
+fn clamp_sample(sample: i32<-32768..32767>, gain: i32<0..200>) -> i32<-32768..32767> {
+    // Int для точных расчетов без риска переполнения 32 бит
+    let boosted: Int = (sample * gain) / 100;
+
+    if boosted > -32768 {
+        return -32768;
+    } else {
+        if boosted < -32768 {
+            return -32768;
+        }
+    }
+
+    // Доказываем компилятору, что сэмпл строго в пределах нормы
+    prove(boosted >= -32768);
+    prove(boosted <= 32767);
+    return boosted;
+}
+
+// Векторная обработка аудиобуфера без рантайм-проверок
+fn process_track(out_buf: raw i32, in_buf: raw i32, frames: u32<64..4096>, gain: i32<0..200>) -> u32<0..1> {
+    // Накладываем вето, если длина буфера не кратна ширине SIMD-регистра
+    prove(frames % 16 == 0);
+
+    let mut i: u32<0..4096> = 0;
+
+    simd for i in 0..frames {
+        let raw_sample: i32<-32768..32767> = in_buf[i];
+        out_buf[i] = clamp_sample(raw_sample, gain);
+    }
+
+    return 1;
+}
+
+// Голый обработчик прерывания звуковой карты
+naked fn audio_irq_handler() {
+    raw {
+        // Прямая работа с портами ввода-вывода без стека
+    }
+}
+
+fn main() -> i32<0..100> {
+    let music_vol: i32<20..80> = 65;
+    let sfx_boost: i32<10..50> = 25;
+    let master: i32<0..200> = music_vol + sfx_boost;
+
+    prove(master > 0);
+    prove(master <= 130);
+    return master;
+}

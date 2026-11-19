@@ -1,0 +1,127 @@
+{
+  "name": "Veto",
+  "scopeName": "source.veto",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#attributes" },
+    { "include": "#strings" },
+    { "include": "#chars" },
+    { "include": "#booleans" },
+    { "include": "#keywords" },
+    { "include": "#builtins" },
+    { "include": "#types" },
+    { "include": "#enum_variants" },
+    { "include": "#numbers" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.veto",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.veto",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "attributes": {
+      "patterns": [
+        {
+          "name": "meta.attribute.veto entity.name.tag.veto",
+          "match": "#\\[(mmio|port|packed|inline|interrupt|test|requires|ensures|terminates|max_cycles|linear|consume|irq_safe|no_alloc|lock_free|max_depth|stack_limit|locks|may_sleep|allocates|cfg)(\\([^\\]]+\\))?\\]"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.veto",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.veto",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "chars": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.veto",
+          "match": "'(\\\\.|[^'\\\\])'"
+        }
+      ]
+    },
+    "booleans": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.veto",
+          "match": "\\b(true|false|None)\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.veto",
+          "match": "\\b(fn|struct|bitstruct|impl|enum|trait|arena|mod|comptime|let|mut|const|if|else|match|for|in|loop|while|break|continue|return|use|simd|prove|raw|naked|self)\\b"
+        }
+      ]
+    },
+    "builtins": {
+      "patterns": [
+        {
+          "name": "support.function.builtin.veto",
+          "match": "\\b(asm!|Some|Ok|Err|vga_poke|vga_print|vga_set_cursor|port_out8|port_in8|mem_read8|mem_write8|mem_read32|mem_write32|cpu_cli|cpu_sti|cpu_halt|cpu_reboot|idt_init|irq_ticks|irq_pop_key)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.primitive.veto",
+          "match": "\\b(i8|u8|i16|u16|i32|u32|i64|u64|usize|bool|str|f32|Int|u[1-9]|u[1-2][0-9]|u3[0-2])(<[^>]+>)?\\b"
+        },
+        {
+          "name": "entity.name.type.veto",
+          "match": "\\b(Option|Result|[A-Z][A-Za-z0-9_]*)\\b"
+        }
+      ]
+    },
+    "enum_variants": {
+      "patterns": [
+        {
+          "name": "constant.other.enum.veto",
+          "match": "::[A-Za-z0-9_]+"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.veto",
+          "match": "\\b0[xX][0-9a-fA-F_]+\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.veto",
+          "match": "\\b[0-9][0-9_]*(\\.[0-9]+)?\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.veto",
+          "match": "(=>|->|::|\\.\\.|&&|\\|\\||<<|>>|==|!=|<=|>=|\\+=|-=|&=|\\|=|<|>|\\+|-|\\*|/|%|&|\\||\\^|!|=)"
+        }
+      ]
+    }
+  }
+}

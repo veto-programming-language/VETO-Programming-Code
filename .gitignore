@@ -1,0 +1,9 @@
+/target
+*.db
+*.elf
+*.iso
+*.o
+*.s
+*.zip
+*.bak
+a.out

@@ -1,0 +1,27 @@
+[package]
+name = "vetoc"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Zero-Unsafe Formally Verified Systems Programming Language"
+default-run = "vetoc"
+
+[features]
+default = ["inquisitor"]
+inquisitor = ["dep:rusqlite"]
+
+[dependencies]
+rusqlite   = { version = "0.32", features = ["bundled"], optional = true }
+
+[lib]
+name = "vetoc"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vetoc"
+path = "src/main.rs"
+
+[[bin]]
+name = "train_inquisitor"
+path = "src/bin/train_inquisitor.rs"
+required-features = ["inquisitor"]

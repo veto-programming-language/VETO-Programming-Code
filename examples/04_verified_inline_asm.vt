@@ -1,0 +1,21 @@
+#[port(0x80..0x80)]
+fn io_wait() -> () {
+    asm!("outb %al, %dx", clobbers: "eax, edx");
+    return;
+}
+
+mod serial {
+    #[port(0x3F8..0x3FF)]
+    fn write_byte(b: u8) -> () {
+        port_out8(0x3F8, b);
+        return;
+    }
+}
+
+#[port(0x80..0x80)]
+#[port(0x3F8..0x3FF)]
+fn main() -> i32<0..0> {
+    io_wait();
+    serial__write_byte(65);
+    return 0;
+}

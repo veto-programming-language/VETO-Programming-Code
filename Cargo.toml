@@ -1,0 +1,29 @@
+[package]
+name = "vetoc"
+version = "0.1.0"
+edition = "2021"
+default-run = "vetoc"    # ← добавить эту строку
+
+[features]
+default = ["inquisitor"]
+inquisitor = ["dep:rusqlite", "dep:serde_json"]
+
+[dependencies]
+rusqlite   = { version = "0.32", features = ["bundled"], optional = true }
+serde_json = { version = "1.0", optional = true }
+
+# ── библиотечная часть (нужна, чтобы bin/train_inquisitor мог делать use vetoc::...)
+[lib]
+name = "vetoc"
+path = "src/lib.rs"
+
+# ── основной бинарник (то, что запускается как ./vetoc)
+[[bin]]
+name = "vetoc"
+path = "src/main.rs"
+
+# ── тренер модели, отдельный бинарник
+[[bin]]
+name = "train_inquisitor"
+path = "src/bin/train_inquisitor.rs"
+required-features = ["inquisitor"]

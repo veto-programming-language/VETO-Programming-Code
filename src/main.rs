@@ -51,6 +51,7 @@ fn main() -> ExitCode {
             "-O3",
             "-march=native",
             "-fno-stack-protector",
+            "-lSDL2",
             "-o",
             "veto_app",
         ])

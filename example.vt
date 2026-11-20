@@ -1,29 +1,47 @@
-// Veto DSP: Микшер звука с математическим доказательством отсутствия перегруза
-use core::arch;
+// Veto Graphics: Окно 800x600 и управление точкой на Y (вверх), G (влево), H (вниз), J (вправо)
 
-fn clamp_sample(sample: i32<-32768..32767>, gain: i32<0..200>) -> i32<-32768..32767> {
-    let boosted: i32<-65536..65534> = (sample * gain) / 100;
+fn main() -> i32<0..1> {
+    gfx_open(800, 600);
 
-    if boosted > -32768 {
-        return -32768;
-    } else {
-        if boosted < -32768 {
-            return -32768;
+    let mut x: i32<0..800> = 400;
+    let mut y: i32<0..600> = 300;
+
+    loop {
+        let key: i32<0..4> = gfx_poll_key();
+
+        // Y -> вверх
+        if key == 1 {
+            if y > 5 {
+                y = y - 5;
+            }
         }
+        // G -> влево
+        if key == 2 {
+            if x > 5 {
+                x = x - 5;
+            }
+        }
+        // H -> вниз
+        if key == 3 {
+            if y < 595 {
+                y = y + 5;
+            }
+        }
+        // J -> вправо
+        if key == 4 {
+            if x < 795 {
+                x = x + 5;
+            }
+        }
+
+        // Veto гарантирует, что точка никогда не вылетит за границы экрана
+        prove(x >= 0);
+        prove(x <= 800);
+        prove(y >= 0);
+        prove(y <= 600);
+
+        gfx_draw_point(x, y);
     }
 
-    // Доказываем компилятору, что сэмпл строго в пределах нормы
-    prove(boosted >= -32768);
-    prove(boosted <= 32767);
-    return boosted;
-}
-
-fn main() -> i32<0..200> {
-    let music_vol: i32<20..80> = 65;
-    let sfx_boost: i32<10..50> = 25;
-    let master: i32<30..130> = music_vol + sfx_boost;
-
-    prove(master > 0);
-    prove(master <= 130);
-    return master;
+    return 0;
 }

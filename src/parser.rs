@@ -288,6 +288,36 @@ impl Parser {
                         body: self.parse_block(),
                     });
                 }
+                TokenKind::For => {
+                    self.advance();
+                    let var = match self.advance() {
+                        TokenKind::Ident(name) => name,
+                        other => panic!(
+                            "[VETO | строка {}]: ожидалось имя переменной в for, найдено {:?}",
+                            ln, other
+                        ),
+                    };
+                    if *self.peek() != TokenKind::In {
+                        panic!(
+                            "[VETO | строка {}]: ожидалось 'in' после переменной for",
+                            ln
+                        );
+                    }
+                    self.advance();
+                    let start = self.parse_logic_or();
+                    if *self.peek() != TokenKind::DotDot {
+                        panic!("[VETO | строка {}]: ожидался '..' в диапазоне for", ln);
+                    }
+                    self.advance();
+                    let end = self.parse_logic_or();
+                    body.push(Stmt::For {
+                        line: ln,
+                        var,
+                        start,
+                        end,
+                        body: self.parse_block(),
+                    });
+                }
                 TokenKind::While => {
                     self.advance();
                     let cond = self.parse_logic_or();

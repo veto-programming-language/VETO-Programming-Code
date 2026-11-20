@@ -286,6 +286,61 @@ fn emit_stmts(
                 );
                 out.push_str(&format!("{}}}\n", indent));
             }
+            Stmt::For {
+                line,
+                var,
+                start,
+                end,
+                body,
+            } => {
+                let (s_lo, _s_hi) = eval_expr_range(start, env, arrays, sigs).unwrap_or_else(|e| {
+                    eprintln!(
+                        "\n[VETO | строка {}]: Ошибка начала диапазона в for: {}",
+                        line, e
+                    );
+                    std::process::exit(1);
+                });
+                let (_e_lo, e_hi) = eval_expr_range(end, env, arrays, sigs).unwrap_or_else(|e| {
+                    eprintln!(
+                        "\n[VETO | строка {}]: Ошибка конца диапазона в for: {}",
+                        line, e
+                    );
+                    std::process::exit(1);
+                });
+                if s_lo > e_hi {
+                    eprintln!(
+                        "\n[VETO | строка {}]: Некорректный диапазон цикла for ({}..{})!",
+                        line, s_lo, e_hi
+                    );
+                    std::process::exit(1);
+                }
+                let mut loop_env = env.clone();
+                let mut loop_decl = declared.clone();
+                let iter_hi = (e_hi - 1).max(s_lo);
+                loop_env.insert(var.clone(), (s_lo, iter_hi));
+                loop_decl.insert(var.clone(), (s_lo, iter_hi));
+                out.push_str(&format!(
+                    "{}for (int32_t {} = {}; {} < {}; {}++) {{\n",
+                    indent,
+                    var,
+                    expr_to_c(start),
+                    var,
+                    expr_to_c(end),
+                    var
+                ));
+                emit_stmts(
+                    body,
+                    func,
+                    &mut loop_env,
+                    &mut loop_decl,
+                    arrays,
+                    sigs,
+                    source,
+                    &format!("{}    ", indent),
+                    out,
+                );
+                out.push_str(&format!("{}}}\n", indent));
+            }
             Stmt::While { cond, body, .. } => {
                 out.push_str(&format!("{}while ({}) {{\n", indent, expr_to_c(cond)));
                 let (mut body_env, _) = refine_envs(cond, env);
@@ -666,7 +721,11 @@ pub fn generate_c(program: &Program, source: &str, is_kernel: bool) -> String {
     );
     let mut global_consts: HashMap<String, (i128, i128)> = HashMap::new();
     let mut struct_contracts: HashMap<String, (i128, i128)> = HashMap::new();
+    let mut struct_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut struct_fields_map: HashMap<String, Vec<(String, i128, i128)>> = HashMap::new();
     for st in &program.structs {
+        struct_names.insert(st.name.clone());
+        let mut flist = Vec::new();
         c_out.push_str(&format!("struct {} {{\n", st.name));
         for f in &st.fields {
             c_out.push_str(&format!("    int32_t {};\n", f.name));
@@ -674,8 +733,10 @@ pub fn generate_c(program: &Program, source: &str, is_kernel: bool) -> String {
                 format!("__struct_{}.{}", st.name, f.name),
                 (f.min_val as i128, f.max_val as i128),
             );
+            flist.push((f.name.clone(), f.min_val as i128, f.max_val as i128));
         }
         c_out.push_str("};\n\n");
+        struct_fields_map.insert(st.name.clone(), flist);
     }
     let no_arrays: HashMap<String, ArrayInfo> = HashMap::new();
     for c in &program.consts {
@@ -724,7 +785,14 @@ pub fn generate_c(program: &Program, source: &str, is_kernel: bool) -> String {
         declared.extend(struct_contracts.clone());
         let mut arrays: HashMap<String, ArrayInfo> = HashMap::new();
         for p in &func.params {
-            if !(p.min_val == i64::MIN && p.max_val == i64::MAX) {
+            if let Some(flist) = struct_fields_map.get(&p.type_name) {
+                env.insert(p.name.clone(), (0, 0));
+                for (fname, fmin, fmax) in flist {
+                    let key = format!("{}.{}", p.name, fname);
+                    env.insert(key.clone(), (*fmin, *fmax));
+                    declared.insert(key, (*fmin, *fmax));
+                }
+            } else if !(p.min_val == i64::MIN && p.max_val == i64::MAX) {
                 let bounds = (p.min_val as i128, p.max_val as i128);
                 env.insert(p.name.clone(), bounds);
                 declared.insert(p.name.clone(), bounds);
@@ -736,14 +804,25 @@ pub fn generate_c(program: &Program, source: &str, is_kernel: bool) -> String {
             let params_c: StrList = func
                 .params
                 .iter()
-                .map(|p| format!("int32_t {}", p.name))
+                .map(|p| {
+                    if struct_names.contains(&p.type_name) {
+                        format!("struct {} {}", p.type_name, p.name)
+                    } else {
+                        format!("int32_t {}", p.name)
+                    }
+                })
                 .collect();
             let params_str = if params_c.is_empty() {
                 "void".to_string()
             } else {
                 params_c.join(", ")
             };
-            c_out.push_str(&format!("int32_t {}({}) {{\n", func.name, params_str));
+            let ret_c = if struct_names.contains(&func.ret_type) {
+                format!("struct {}", func.ret_type)
+            } else {
+                "int32_t".to_string()
+            };
+            c_out.push_str(&format!("{} {}({}) {{\n", ret_c, func.name, params_str));
         }
         emit_stmts(
             &func.body,

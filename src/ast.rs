@@ -65,6 +65,13 @@ pub enum Stmt {
         cond: Expr,
         body: StmtList,
     },
+    For {
+        line: usize,
+        var: String,
+        start: Expr,
+        end: Expr,
+        body: StmtList,
+    },
     Break {
         line: usize,
     },

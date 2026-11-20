@@ -112,6 +112,31 @@ impl Lexer {
                         self.advance();
                     }
                 }
+                '\'' => {
+                    self.advance();
+                    let val = match self.peek() {
+                        Some('\\') => {
+                            self.advance();
+                            match self.advance() {
+                                Some('n') => 10,
+                                Some('r') => 13,
+                                Some('t') => 9,
+                                Some('0') => 0,
+                                Some(c) => c as i64,
+                                None => 0,
+                            }
+                        }
+                        Some(_) => self.advance().unwrap() as i64,
+                        None => 0,
+                    };
+                    if self.peek() == Some('\'') {
+                        self.advance();
+                    }
+                    tokens.push(Token {
+                        kind: TokenKind::Number(val),
+                        line: cur_line,
+                    });
+                }
                 '"' => {
                     self.advance();
                     let mut s = String::new();

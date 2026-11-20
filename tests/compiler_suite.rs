@@ -499,7 +499,7 @@ fn test_ok_layer4_x86_64_and_arm64_backends() {
     let src = "fn add_fast(a: i32<0..100>, b: i32<0..100>) -> i32<0..200> { return a + b; }";
     let asm64 = compile_to_asm_arch(src, "arch64.vt", ".", false, "x86_64").unwrap();
     assert!(asm64.contains(".code64"));
-    assert!(asm64.contains("addq %rsi, %rax"));
+    assert!(asm64.contains("addq %rcx, %rax"));
     let arm64 = compile_to_asm_arch(src, "arm64.vt", ".", false, "arm64").unwrap();
     assert!(arm64.contains("add x0, x0, x1"));
 }
@@ -531,4 +531,76 @@ fn test_ok_layer4_smt_reflexivity_solver() {
     let env = std::collections::HashMap::new();
     let rep = vetoc::proofgen::smt_simplify_diff("idx * 2 + 1", "idx * 2 + 1", &env).unwrap();
     assert_eq!(rep.outcome, vetoc::proofgen::Outcome::Proven);
+}
+
+#[test]
+fn test_err_ensures_postcondition_violated_on_early_return() {
+    assert_err_stage(
+        r#"
+        #[ensures(GdtReady)]
+        fn init_gdt() -> () { return; }
+
+        #[ensures(GdtReady)]
+        fn broken_boot(fast: bool) -> () {
+            if fast {
+                return;
+            }
+            init_gdt();
+            return;
+        }
+
+        fn main() -> i32<0..0> {
+            broken_boot(true);
+            return 0;
+        }
+    "#,
+        Stage::Verifier,
+    );
+}
+
+#[test]
+fn test_err_linear_resource_leaked_inside_loop() {
+    assert_err_stage(
+        r#"
+        #[linear]
+        struct SpinLockGuard { lock_id: u8 }
+        fn acquire_lock(id: u8) -> SpinLockGuard { return SpinLockGuard { lock_id: id }; }
+
+        fn leaky_loop() -> () {
+            for i in 0..4 {
+                let g: SpinLockGuard = acquire_lock(1);
+            }
+            return;
+        }
+
+        fn main() -> i32<0..0> {
+            leaky_loop();
+            return 0;
+        }
+    "#,
+        Stage::Verifier,
+    );
+}
+
+#[test]
+fn test_ok_full_64bit_x86_64_and_arm64_control_flow() {
+    let src = r#"
+        fn sum_to(n: i32<0..20>) -> i32<0..1000> {
+            let mut acc: i32<0..1000> = 0;
+            let mut i: i32<0..21> = 0;
+            while i < n {
+                acc = i + 1;
+                i += 1;
+            }
+            return acc;
+        }
+    "#;
+    let asm64 = compile_to_asm_arch(src, "cf64.vt", ".", false, "x86_64").unwrap();
+    assert!(asm64.contains("subq $"));
+    assert!(asm64.contains(".L64_whead_"));
+    assert!(asm64.contains("imulq") || asm64.contains("addq"));
+
+    let arm64 = compile_to_asm_arch(src, "cf_arm64.vt", ".", false, "arm64").unwrap();
+    assert!(arm64.contains("cbz x0,"));
+    assert!(arm64.contains("stp x29, x30"));
 }

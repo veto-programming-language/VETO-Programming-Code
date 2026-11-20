@@ -628,9 +628,31 @@ fn check_typestate(
             | Stmt::Assign { line, value, .. }
             | Stmt::FieldAssign { line, value, .. }
             | Stmt::IndexAssign { line, value, .. }
-            | Stmt::ExprStmt { line, expr: value }
-            | Stmt::Return { line, expr: value } => {
+            | Stmt::ExprStmt { line, expr: value } => {
                 eval_call_states(program, value, func, states, file, *line, bag);
+            }
+            Stmt::Return { line, expr: value } => {
+                eval_call_states(program, value, func, states, file, *line, bag);
+                let is_leaf_axiom = func.body.len() == 1 && matches!(value, Expr::Number(0));
+                if !is_leaf_axiom {
+                    for attr in &func.attrs {
+                        if let Some(ens_list) = attr.strip_prefix("ensures:") {
+                            for ens in ens_list.split(',').filter(|s| !s.is_empty()) {
+                                if !states.contains(ens) {
+                                    bag.push(
+                                        Stage::Verifier,
+                                        file,
+                                        *line,
+                                        format!(
+                                            "Function '{}' declares #[ensures({})], but returns before establishing this state!",
+                                            func.name, ens
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
             }
             Stmt::If {
                 cond,
@@ -747,7 +769,21 @@ fn check_linear_resources(
                 }
             }
             Stmt::For { body, .. } | Stmt::While { body, .. } | Stmt::Loop { body, .. } => {
+                let before_loop = live.clone();
                 check_linear_resources(body, func, linear_structs, live, file, bag);
+                for (res_name, decl_line) in live.iter() {
+                    if !before_loop.contains_key(res_name) {
+                        bag.push(
+                            Stage::Verifier,
+                            file,
+                            *decl_line,
+                            format!(
+                                "Linear resource '{}' created inside loop in '{}' is not consumed before next iteration!",
+                                res_name, func.name
+                            ),
+                        );
+                    }
+                }
             }
             Stmt::Return { line, expr } => {
                 if let Expr::Var(v) = expr {
@@ -2346,19 +2382,31 @@ static struct {}_Arena {} = {{ .len = 0 }};
             }
         }
         check_typestate(program, &func.body, func, &mut active_states, file, bag);
-        for attr in &func.attrs {
-            if let Some(ens_list) = attr.strip_prefix("ensures:") {
-                for ens in ens_list.split(',').filter(|s| !s.is_empty()) {
-                    if false && !active_states.contains(ens) {
-                        bag.push(
-                            Stage::Verifier,
-                            file,
-                            func.line,
-                            format!(
-                                "Function '{}' declares #[ensures({})], but does not guarantee it on all paths!",
-                                func.name, ens
-                            ),
-                        );
+        let is_leaf_axiom = func.body.len() <= 1
+            && func.body.iter().all(|s| {
+                matches!(
+                    s,
+                    Stmt::Return {
+                        expr: Expr::Number(0),
+                        ..
+                    } | Stmt::InlineAsm { .. }
+                )
+            });
+        if !is_leaf_axiom && !block_always_returns(&func.body) {
+            for attr in &func.attrs {
+                if let Some(ens_list) = attr.strip_prefix("ensures:") {
+                    for ens in ens_list.split(',').filter(|s| !s.is_empty()) {
+                        if !active_states.contains(ens) {
+                            bag.push(
+                                Stage::Verifier,
+                                file,
+                                func.line,
+                                format!(
+                                    "Function '{}' declares #[ensures({})], but does not guarantee it on all paths!",
+                                    func.name, ens
+                                ),
+                            );
+                        }
                     }
                 }
             }

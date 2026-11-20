@@ -820,74 +820,443 @@ fn emit_expr(ctx: &mut AsmCtx, expr: &Expr, program: &Program) {
     }
 }
 
+struct Ctx64 {
+    lines: Vec<String>,
+    locals: HashMap<String, i32>,
+    stack_offset: i32,
+    label_id: usize,
+    loop_stack: Vec<(String, String)>,
+}
+
+impl Ctx64 {
+    fn new() -> Self {
+        Self {
+            lines: Vec::new(),
+            locals: HashMap::new(),
+            stack_offset: 0,
+            label_id: 0,
+            loop_stack: Vec::new(),
+        }
+    }
+
+    fn emit(&mut self, s: impl Into<String>) {
+        self.lines.push(format!("    {}", s.into()));
+    }
+
+    fn emit_label(&mut self, l: &str) {
+        self.lines.push(format!("{}:", l));
+    }
+
+    fn next_label(&mut self, prefix: &str) -> String {
+        let id = self.label_id;
+        self.label_id += 1;
+        format!(".L64_{}_{}", prefix, id)
+    }
+
+    fn alloc_local(&mut self, name: &str, bytes: i32) -> i32 {
+        self.stack_offset += bytes;
+        let off = -self.stack_offset;
+        self.locals.insert(name.to_string(), off);
+        off
+    }
+}
+
+fn gen_expr_x86_64(expr: &Expr, ctx: &mut Ctx64) {
+    match expr {
+        Expr::Number(n) => ctx.emit(format!("movq ${}, %rax", n)),
+        Expr::Var(name) => {
+            if let Some(&off) = ctx.locals.get(name) {
+                ctx.emit(format!("movq {}(%rbp), %rax", off));
+            } else {
+                ctx.emit("xorq %rax, %rax");
+            }
+        }
+        Expr::Index(arr, idx) => {
+            gen_expr_x86_64(idx, ctx);
+            if let Some(&base) = ctx.locals.get(arr) {
+                ctx.emit(format!("leaq {}(%rbp), %rcx", base));
+                ctx.emit("movq (%rcx,%rax,8), %rax");
+            }
+        }
+        Expr::UnaryNot(inner) => {
+            gen_expr_x86_64(inner, ctx);
+            ctx.emit("testq %rax, %rax");
+            ctx.emit("sete %al");
+            ctx.emit("movzbq %al, %rax");
+        }
+        Expr::BinOp(l, op, r) => {
+            gen_expr_x86_64(l, ctx);
+            ctx.emit("pushq %rax");
+            gen_expr_x86_64(r, ctx);
+            ctx.emit("movq %rax, %rcx");
+            ctx.emit("popq %rax");
+            match op.as_str() {
+                "+" => ctx.emit("addq %rcx, %rax"),
+                "-" => ctx.emit("subq %rcx, %rax"),
+                "*" => ctx.emit("imulq %rcx, %rax"),
+                "/" => {
+                    ctx.emit("cqto");
+                    ctx.emit("idivq %rcx");
+                }
+                "%" => {
+                    ctx.emit("cqto");
+                    ctx.emit("idivq %rcx");
+                    ctx.emit("movq %rdx, %rax");
+                }
+                "&" => ctx.emit("andq %rcx, %rax"),
+                "|" => ctx.emit("orq %rcx, %rax"),
+                "^" => ctx.emit("xorq %rcx, %rax"),
+                "<<" => ctx.emit("shlq %cl, %rax"),
+                ">>" => ctx.emit("sarq %cl, %rax"),
+                "==" | "!=" | "<" | "<=" | ">" | ">=" => {
+                    ctx.emit("cmpq %rcx, %rax");
+                    let cc = match op.as_str() {
+                        "==" => "sete",
+                        "!=" => "setne",
+                        "<" => "setl",
+                        "<=" => "setle",
+                        ">" => "setg",
+                        ">=" => "setge",
+                        _ => "sete",
+                    };
+                    ctx.emit(format!("{} %al", cc));
+                    ctx.emit("movzbq %al, %rax");
+                }
+                _ => {}
+            }
+        }
+        Expr::Call(name, args) => {
+            let sysv_regs = ["%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"];
+            for a in args.iter().rev() {
+                gen_expr_x86_64(a, ctx);
+                ctx.emit("pushq %rax");
+            }
+            for i in 0..args.len().min(6) {
+                ctx.emit(format!("popq {}", sysv_regs[i]));
+            }
+            ctx.emit(format!("call {}", name));
+            if args.len() > 6 {
+                ctx.emit(format!("addq ${}, %rsp", (args.len() - 6) * 8));
+            }
+        }
+        _ => ctx.emit("xorq %rax, %rax"),
+    }
+}
+
+fn gen_stmt_x86_64(stmt: &Stmt, ctx: &mut Ctx64) {
+    match stmt {
+        Stmt::Let { name, value, .. } => {
+            gen_expr_x86_64(value, ctx);
+            let off = ctx.alloc_local(name, 8);
+            ctx.emit(format!("movq %rax, {}(%rbp)", off));
+        }
+        Stmt::LetArray {
+            name,
+            len,
+            elements,
+            ..
+        } => {
+            let base = ctx.alloc_local(name, (*len as i32) * 8);
+            for (i, el) in elements.iter().enumerate() {
+                gen_expr_x86_64(el, ctx);
+                ctx.emit(format!("movq %rax, {}(%rbp)", base + (i as i32) * 8));
+            }
+        }
+        Stmt::Assign { name, value, .. } => {
+            gen_expr_x86_64(value, ctx);
+            if let Some(&off) = ctx.locals.get(name) {
+                ctx.emit(format!("movq %rax, {}(%rbp)", off));
+            }
+        }
+        Stmt::IndexAssign {
+            name, index, value, ..
+        } => {
+            gen_expr_x86_64(value, ctx);
+            ctx.emit("pushq %rax");
+            gen_expr_x86_64(index, ctx);
+            ctx.emit("popq %rdx");
+            if let Some(&base) = ctx.locals.get(name) {
+                ctx.emit(format!("leaq {}(%rbp), %rcx", base));
+                ctx.emit("movq %rdx, (%rcx,%rax,8)");
+            }
+        }
+        Stmt::If {
+            cond,
+            then_body,
+            else_body,
+            ..
+        } => {
+            let l_else = ctx.next_label("else");
+            let l_end = ctx.next_label("endif");
+            gen_expr_x86_64(cond, ctx);
+            ctx.emit("testq %rax, %rax");
+            ctx.emit(format!("jz {}", l_else));
+            for s in then_body {
+                gen_stmt_x86_64(s, ctx);
+            }
+            ctx.emit(format!("jmp {}", l_end));
+            ctx.emit_label(&l_else);
+            for s in else_body {
+                gen_stmt_x86_64(s, ctx);
+            }
+            ctx.emit_label(&l_end);
+        }
+        Stmt::While { cond, body, .. } => {
+            let l_head = ctx.next_label("whead");
+            let l_exit = ctx.next_label("wexit");
+            ctx.loop_stack.push((l_head.clone(), l_exit.clone()));
+            ctx.emit_label(&l_head);
+            gen_expr_x86_64(cond, ctx);
+            ctx.emit("testq %rax, %rax");
+            ctx.emit(format!("jz {}", l_exit));
+            for s in body {
+                gen_stmt_x86_64(s, ctx);
+            }
+            ctx.emit(format!("jmp {}", l_head));
+            ctx.emit_label(&l_exit);
+            ctx.loop_stack.pop();
+        }
+        Stmt::Loop { body, .. } => {
+            let l_head = ctx.next_label("lhead");
+            let l_exit = ctx.next_label("lexit");
+            ctx.loop_stack.push((l_head.clone(), l_exit.clone()));
+            ctx.emit_label(&l_head);
+            for s in body {
+                gen_stmt_x86_64(s, ctx);
+            }
+            ctx.emit(format!("jmp {}", l_head));
+            ctx.emit_label(&l_exit);
+            ctx.loop_stack.pop();
+        }
+        Stmt::For {
+            var,
+            start,
+            end,
+            body,
+            ..
+        } => {
+            let l_head = ctx.next_label("fhead");
+            let l_step = ctx.next_label("fstep");
+            let l_exit = ctx.next_label("fexit");
+            gen_expr_x86_64(start, ctx);
+            let off = ctx.alloc_local(var, 8);
+            ctx.emit(format!("movq %rax, {}(%rbp)", off));
+            ctx.loop_stack.push((l_step.clone(), l_exit.clone()));
+            ctx.emit_label(&l_head);
+            gen_expr_x86_64(end, ctx);
+            ctx.emit(format!("cmpq %rax, {}(%rbp)", off));
+            ctx.emit(format!("jge {}", l_exit));
+            for s in body {
+                gen_stmt_x86_64(s, ctx);
+            }
+            ctx.emit_label(&l_step);
+            ctx.emit(format!("incq {}(%rbp)", off));
+            ctx.emit(format!("jmp {}", l_head));
+            ctx.emit_label(&l_exit);
+            ctx.loop_stack.pop();
+        }
+        Stmt::Break { .. } => {
+            if let Some((_, l_exit)) = ctx.loop_stack.last().cloned() {
+                ctx.emit(format!("jmp {}", l_exit));
+            }
+        }
+        Stmt::Continue { .. } => {
+            if let Some((l_cont, _)) = ctx.loop_stack.last().cloned() {
+                ctx.emit(format!("jmp {}", l_cont));
+            }
+        }
+        Stmt::ExprStmt { expr, .. } => gen_expr_x86_64(expr, ctx),
+        Stmt::InlineAsm { template, .. } => ctx.emit(template),
+        Stmt::Return { expr, .. } => {
+            gen_expr_x86_64(expr, ctx);
+            ctx.emit("leave");
+            ctx.emit("ret");
+        }
+        _ => {}
+    }
+}
+
 pub fn generate_x86_64_asm(program: &Program, is_kernel: bool) -> String {
-    let mut out =
-        String::from("# Generated by VETO Native x86_64 Backend (0 GCC dependency)\n.code64\n");
+    let mut out = String::from(".code64\n");
     if is_kernel {
         out.push_str(".bss\n.align 16\nkernel_stack64:\n.skip 32768\nkernel_stack64_top:\n.text\n.global _start\n_start:\n    cli\n    leaq kernel_stack64_top(%rip), %rsp\n    call main\n.L_halt64:\n    hlt\n    jmp .L_halt64\n\n");
     } else {
         out.push_str(".text\n");
     }
-    let arg_regs = ["%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"];
+    let sysv_regs = ["%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"];
     for func in &program.functions {
+        let mut ctx = Ctx64::new();
+        for (i, p) in func.params.iter().enumerate() {
+            let off = ctx.alloc_local(&p.name, 8);
+            if i < 6 {
+                ctx.emit(format!("movq {}, {}(%rbp)", sysv_regs[i], off));
+            } else {
+                let caller_off = 16 + ((i - 6) as i32) * 8;
+                ctx.emit(format!("movq {}(%rbp), %rax", caller_off));
+                ctx.emit(format!("movq %rax, {}(%rbp)", off));
+            }
+        }
+        for stmt in &func.body {
+            gen_stmt_x86_64(stmt, &mut ctx);
+        }
+        let frame_align = (ctx.stack_offset + 15) & !15;
         out.push_str(&format!(
             ".global {}\n{}:\n    pushq %rbp\n    movq %rsp, %rbp\n",
             func.name, func.name
         ));
-        for (i, _p) in func.params.iter().enumerate().take(6) {
-            out.push_str(&format!("    # param {} in {}\n", i, arg_regs[i]));
+        if frame_align > 0 {
+            out.push_str(&format!("    subq ${}, %rsp\n", frame_align));
         }
-        for stmt in &func.body {
-            match stmt {
-                Stmt::InlineAsm { template, .. } => out.push_str(&format!("    {}\n", template)),
-                Stmt::Return { expr, .. } => {
-                    if let Expr::Number(n) = expr {
-                        out.push_str(&format!("    movq ${}, %rax\n", n));
-                    } else if let Expr::BinOp(l, op, r) = expr {
-                        if let (Expr::Var(_), Expr::Var(_)) = (l.as_ref(), r.as_ref()) {
-                            out.push_str("    movq %rdi, %rax\n");
-                            if op == "+" {
-                                out.push_str("    addq %rsi, %rax\n");
-                            } else if op == "-" {
-                                out.push_str("    subq %rsi, %rax\n");
-                            }
-                        }
-                    } else if let Expr::Var(_) = expr {
-                        out.push_str("    movq %rdi, %rax\n");
-                    }
-                    out.push_str("    popq %rbp\n    ret\n");
+        for line in ctx.lines {
+            out.push_str(&line);
+            out.push_str("\n");
+        }
+        out.push_str("    leave\n    ret\n\n");
+    }
+    out
+}
+fn gen_expr_arm64(expr: &Expr, ctx: &mut Ctx64) {
+    match expr {
+        Expr::Number(n) => ctx.emit(format!("mov x0, #{}", n)),
+        Expr::Var(name) => {
+            if let Some(&off) = ctx.locals.get(name) {
+                ctx.emit(format!("ldur x0, [x29, #{}]", off));
+            } else {
+                ctx.emit("mov x0, #0");
+            }
+        }
+        Expr::UnaryNot(inner) => {
+            gen_expr_arm64(inner, ctx);
+            ctx.emit("cmp x0, #0");
+            ctx.emit("cset x0, eq");
+        }
+        Expr::BinOp(l, op, r) => {
+            gen_expr_arm64(l, ctx);
+            ctx.emit("str x0, [sp, #-16]!");
+            gen_expr_arm64(r, ctx);
+            ctx.emit("mov x1, x0");
+            ctx.emit("ldr x0, [sp], #16");
+            match op.as_str() {
+                "+" => ctx.emit("add x0, x0, x1"),
+                "-" => ctx.emit("sub x0, x0, x1"),
+                "*" => ctx.emit("mul x0, x0, x1"),
+                "/" => ctx.emit("sdiv x0, x0, x1"),
+                "&" => ctx.emit("and x0, x0, x1"),
+                "|" => ctx.emit("orr x0, x0, x1"),
+                "^" => ctx.emit("eor x0, x0, x1"),
+                "<<" => ctx.emit("lsl x0, x0, x1"),
+                ">>" => ctx.emit("asr x0, x0, x1"),
+                "==" | "!=" | "<" | "<=" | ">" | ">=" => {
+                    ctx.emit("cmp x0, x1");
+                    let cc = match op.as_str() {
+                        "==" => "eq",
+                        "!=" => "ne",
+                        "<" => "lt",
+                        "<=" => "le",
+                        ">" => "gt",
+                        ">=" => "ge",
+                        _ => "eq",
+                    };
+                    ctx.emit(format!("cset x0, {}", cc));
                 }
                 _ => {}
             }
         }
-        out.push_str("    popq %rbp\n    ret\n\n");
+        Expr::Call(name, args) => {
+            for a in args.iter().take(8) {
+                gen_expr_arm64(a, ctx);
+                ctx.emit("str x0, [sp, #-16]!");
+            }
+            for i in (0..args.len().min(8)).rev() {
+                ctx.emit(format!("ldr x{}, [sp], #16", i));
+            }
+            ctx.emit(format!("bl {}", name));
+        }
+        _ => ctx.emit("mov x0, #0"),
     }
-    out
 }
-
+fn gen_stmt_arm64(stmt: &Stmt, ctx: &mut Ctx64) {
+    match stmt {
+        Stmt::Let { name, value, .. } => {
+            gen_expr_arm64(value, ctx);
+            let off = ctx.alloc_local(name, 8);
+            ctx.emit(format!("stur x0, [x29, #{}]", off));
+        }
+        Stmt::Assign { name, value, .. } => {
+            gen_expr_arm64(value, ctx);
+            if let Some(&off) = ctx.locals.get(name) {
+                ctx.emit(format!("stur x0, [x29, #{}]", off));
+            }
+        }
+        Stmt::If {
+            cond,
+            then_body,
+            else_body,
+            ..
+        } => {
+            let l_else = ctx.next_label("a64_else");
+            let l_end = ctx.next_label("a64_endif");
+            gen_expr_arm64(cond, ctx);
+            ctx.emit(format!("cbz x0, {}", l_else));
+            for s in then_body {
+                gen_stmt_arm64(s, ctx);
+            }
+            ctx.emit(format!("b {}", l_end));
+            ctx.emit_label(&l_else);
+            for s in else_body {
+                gen_stmt_arm64(s, ctx);
+            }
+            ctx.emit_label(&l_end);
+        }
+        Stmt::While { cond, body, .. } => {
+            let l_head = ctx.next_label("a64_whead");
+            let l_exit = ctx.next_label("a64_wexit");
+            ctx.loop_stack.push((l_head.clone(), l_exit.clone()));
+            ctx.emit_label(&l_head);
+            gen_expr_arm64(cond, ctx);
+            ctx.emit(format!("cbz x0, {}", l_exit));
+            for s in body {
+                gen_stmt_arm64(s, ctx);
+            }
+            ctx.emit(format!("b {}", l_head));
+            ctx.emit_label(&l_exit);
+            ctx.loop_stack.pop();
+        }
+        Stmt::ExprStmt { expr, .. } => gen_expr_arm64(expr, ctx),
+        Stmt::InlineAsm { template, .. } => ctx.emit(template),
+        Stmt::Return { expr, .. } => {
+            gen_expr_arm64(expr, ctx);
+            ctx.emit("mov sp, x29");
+            ctx.emit("ldp x29, x30, [sp], #16");
+            ctx.emit("ret");
+        }
+        _ => {}
+    }
+}
 pub fn generate_arm64_asm(program: &Program) -> String {
-    let mut out =
-        String::from("// Generated by VETO Native ARM64 (AArch64) Backend\n.text\n.align 2\n");
+    let mut out = String::from(".text\n.align 2\n");
     for func in &program.functions {
+        let mut ctx = Ctx64::new();
+        for (i, p) in func.params.iter().enumerate().take(8) {
+            let off = ctx.alloc_local(&p.name, 8);
+            ctx.emit(format!("stur x{}, [x29, #{}]", i, off));
+        }
+        for stmt in &func.body {
+            gen_stmt_arm64(stmt, &mut ctx);
+        }
+        let frame_align = (ctx.stack_offset + 15) & !15;
         out.push_str(&format!(
             ".global {}\n{}:\n    stp x29, x30, [sp, #-16]!\n    mov x29, sp\n",
             func.name, func.name
         ));
-        for stmt in &func.body {
-            if let Stmt::Return { expr, .. } = stmt {
-                if let Expr::Number(n) = expr {
-                    out.push_str(&format!("    mov x0, #{}\n", n));
-                } else if let Expr::BinOp(_, op, _) = expr {
-                    if op == "+" {
-                        out.push_str("    add x0, x0, x1\n");
-                    } else if op == "-" {
-                        out.push_str("    sub x0, x0, x1\n");
-                    }
-                }
-                out.push_str("    ldp x29, x30, [sp], #16\n    ret\n");
-            }
+        if frame_align > 0 {
+            out.push_str(&format!("    sub sp, sp, #{}\n", frame_align));
         }
-        out.push_str("    ldp x29, x30, [sp], #16\n    ret\n\n");
+        for line in ctx.lines {
+            out.push_str(&line);
+            out.push_str("\n");
+        }
+        out.push_str("    mov sp, x29\n    ldp x29, x30, [sp], #16\n    ret\n\n");
     }
     out
 }

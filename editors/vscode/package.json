@@ -1,0 +1,42 @@
+{
+  "name": "veto-lang",
+  "displayName": "Veto Language Support",
+  "description": "Syntax highlighting, snippets, and language configuration for VETO 3.0 (Zero-Unsafe Systems Language)",
+  "version": "0.3.0",
+  "publisher": "danilykegor2015-ctrl",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "veto",
+        "aliases": ["Veto", "veto"],
+        "extensions": [".vt"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "veto",
+        "scopeName": "source.veto",
+        "path": "./syntaxes/veto.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "veto",
+        "path": "./snippets/veto.json"
+      }
+    ]
+  }
+}

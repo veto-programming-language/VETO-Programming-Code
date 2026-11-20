@@ -1,0 +1,150 @@
+{
+  "VETO Main Function": {
+    "prefix": "vmain",
+    "body": [
+      "fn main() -> i32<0..0> {",
+      "    $0",
+      "    return 0;",
+      "}"
+    ],
+    "description": "Verified VETO entry point"
+  },
+  "MMIO & Port Driver": {
+    "prefix": "vmmio",
+    "body": [
+      "#[mmio(${1:0xB8000}..${2:0xB8FA0})]",
+      "#[port(${3:0x3D4}..${4:0x3D5})]",
+      "fn ${5:driver_write}(offset: i32<0..${6:1999}>, val: u8) -> () {",
+      "    $0",
+      "    return;",
+      "}"
+    ],
+    "description": "Capability-verified hardware driver function"
+  },
+  "Typestate Transition": {
+    "prefix": "vstate",
+    "body": [
+      "#[requires(${1:PrevState})]",
+      "#[ensures(${2:NextState})]",
+      "fn ${3:transition}() -> () {",
+      "    $0",
+      "    return;",
+      "}"
+    ],
+    "description": "Compile-time typestate transition function"
+  },
+  "Hardware Bitstruct": {
+    "prefix": "vbit",
+    "body": [
+      "bitstruct ${1:Register}: u32 {",
+      "    ${2:flag}: u1,",
+      "    ${3:value}: u31,",
+      "}"
+    ],
+    "description": "Packed hardware bitfield register"
+  },
+  "Linear Resource Guard": {
+    "prefix": "vlinear",
+    "body": [
+      "#[linear]",
+      "struct ${1:ResourceGuard} {",
+      "    id: u8,",
+      "}",
+      "",
+      "#[consume]",
+      "fn release_${2:resource}(g: ${1:ResourceGuard}) -> () {",
+      "    return;",
+      "}"
+    ],
+    "description": "Must-consume linear resource and sink destructor"
+  },
+  "IRQ-Safe Handler": {
+    "prefix": "virq",
+    "body": [
+      "#[irq_safe]",
+      "#[no_alloc]",
+      "#[lock_free]",
+      "#[terminates]",
+      "#[max_cycles(${1:64})]",
+      "fn ${2:irq_handler}() -> () {",
+      "    $0",
+      "    return;",
+      "}"
+    ],
+    "description": "Deadlock-free, bounded interrupt handler"
+  },
+  "Verified Inline Assembly": {
+    "prefix": "vasm",
+    "body": [
+      "#[port(${1:0x80}..${2:0x80})]",
+      "fn ${3:hw_asm}() -> () {",
+      "    asm!(\"${4:outb %al, %dx}\", clobbers: \"${5:eax, edx}\");",
+      "    return;",
+      "}"
+    ],
+    "description": "Contract-checked inline assembly wrapper"
+  },
+  "Static Arena Allocator": {
+    "prefix": "varena",
+    "body": [
+      "arena ${1:NodeArena}<${2:Node}, ${3:256}>;"
+    ],
+    "description": "Fixed-capacity static arena with bounded index IDs"
+  },
+  "Comptime Function": {
+    "prefix": "vcomptime",
+    "body": [
+      "comptime fn ${1:calc_const}() -> u32 {",
+      "    return ${2:0};",
+      "}"
+    ],
+    "description": "Compile-time evaluated function"
+  },
+  "Algebraic Enum": {
+    "prefix": "venum",
+    "body": [
+      "enum ${1:Status} {",
+      "    ${2:Ok}(u8<0..200>),",
+      "    ${3:Err}(u8<1..10>),",
+      "}"
+    ],
+    "description": "Tagged enum with range-bounded payload"
+  },
+  "Exhaustive Match": {
+    "prefix": "vmatch",
+    "body": [
+      "match ${1:expr} {",
+      "    ${2:Status::Ok(val)} => return ${3:val},",
+      "    ${4:Status::Err(_)} => return ${5:0},",
+      "}"
+    ],
+    "description": "Statically exhaustive pattern match"
+  },
+  "Prove Invariant": {
+    "prefix": "vprove",
+    "body": [
+      "prove(${1:x <= 100});"
+    ],
+    "description": "Invoke SMT / AI Inquisitor static proof"
+  },
+  "Namespace Module": {
+    "prefix": "vmod",
+    "body": [
+      "mod ${1:driver} {",
+      "    $0",
+      "}"
+    ],
+    "description": "Namespaced module block"
+  },
+  "Verified Unit Test": {
+    "prefix": "vtest",
+    "body": [
+      "#[test]",
+      "fn ${1:test_invariant}() -> i32<0..0> {",
+      "    $0",
+      "    return 0;",
+      "}"
+    ],
+    "description": "Compile-time verified unit test"
+  }
+}

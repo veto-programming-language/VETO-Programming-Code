@@ -25,11 +25,17 @@ pub enum Token {
     Bang,       // !
     Less,       // <
     Greater,    // >
+    Shl,        // <<
+    Shr,        // >>
+    Amp,        // &
+    Pipe,       // |
     DotDot,     // ..
     LParen,     // (
     RParen,     // )
     LBrace,     // {
     RBrace,     // }
+    LBracket,   // [
+    RBracket,   // ]
     Plus,       // +
     Minus,      // -
     Star,       // *
@@ -132,6 +138,16 @@ impl Lexer {
                     self.advance();
                     tokens.push(Token::ColonColon);
                 }
+                '<' if self.input.get(self.pos + 1) == Some(&'<') => {
+                    self.advance();
+                    self.advance();
+                    tokens.push(Token::Shl);
+                }
+                '>' if self.input.get(self.pos + 1) == Some(&'>') => {
+                    self.advance();
+                    self.advance();
+                    tokens.push(Token::Shr);
+                }
                 ',' => {
                     self.advance();
                     tokens.push(Token::Comma);
@@ -160,6 +176,14 @@ impl Lexer {
                     self.advance();
                     tokens.push(Token::Greater);
                 }
+                '&' => {
+                    self.advance();
+                    tokens.push(Token::Amp);
+                }
+                '|' => {
+                    self.advance();
+                    tokens.push(Token::Pipe);
+                }
                 '(' => {
                     self.advance();
                     tokens.push(Token::LParen);
@@ -175,6 +199,14 @@ impl Lexer {
                 '}' => {
                     self.advance();
                     tokens.push(Token::RBrace);
+                }
+                '[' => {
+                    self.advance();
+                    tokens.push(Token::LBracket);
+                }
+                ']' => {
+                    self.advance();
+                    tokens.push(Token::RBracket);
                 }
                 '+' => {
                     self.advance();

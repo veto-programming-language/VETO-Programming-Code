@@ -140,13 +140,13 @@ impl P {
                 Expr::Num(n) => Ok(Expr::Num(-n)),
                 e => Ok(Expr::Bin(Box::new(Expr::Num(0)), '-', Box::new(e))),
             },
-            Some(t) if t.chars().next().map_or(false, |c| c.is_ascii_digit()) => {
+            Some(t) if t.chars().next().is_some_and(|c| c.is_ascii_digit()) => {
                 t.parse::<i128>().map(Expr::Num).map_err(|e| e.to_string())
             }
             Some(t)
                 if t.chars()
                     .next()
-                    .map_or(false, |c| c.is_alphabetic() || c == '_') =>
+                    .is_some_and(|c| c.is_alphabetic() || c == '_') =>
             {
                 Ok(Expr::Var(t))
             }

@@ -1,46 +1,276 @@
-// Veto Graphics: Окно 800x600 и управление точкой на Y (вверх), G (влево), H (вниз), J (вправо)
+// VETO-DOOM ULTRA HD: 400 лучей, 10 зомби со случайным спавном и плазменный пистолет
 
 fn main() -> i32<0..1> {
     gfx_open(800, 600);
 
-    let mut x: i32<0..800> = 400;
-    let mut y: i32<0..600> = 300;
+    // Карта уровня 8x8 (1 = стена, 0 = проход)
+    let map: [i32<0..1>; 64] = [
+        1, 1, 1, 1, 1, 1, 1, 1,
+        1, 0, 0, 0, 0, 0, 0, 1,
+        1, 0, 1, 0, 1, 1, 0, 1,
+        1, 0, 1, 0, 0, 0, 0, 1,
+        1, 0, 0, 0, 1, 0, 0, 1,
+        1, 0, 1, 0, 1, 0, 0, 1,
+        1, 0, 0, 0, 0, 0, 0, 1,
+        1, 1, 1, 1, 1, 1, 1, 1
+    ];
+
+    // 8 проверенных свободных точек спавна в коридорах карты
+    let spawn_x: [i32<64..448>; 8] = [ 96, 224, 352, 416, 416, 224,  96, 352];
+    let spawn_y: [i32<64..448>; 8] =;
+
+    // Таблица векторов направления для 64 углов (fixed-point * 64)
+    let dir_x: [i32<-64..64>; 64] = [
+         64,  63,  62,  61,  59,  56,  53,  49,  45,  40,  35,  30,  24,  18,  12,   6,
+          0,  -6, -12, -18, -24, -30, -35, -40, -45, -49, -53, -56, -59, -61, -62, -63,
+        -64, -63, -62, -61, -59, -56, -53, -49, -45, -40, -35, -30, -24, -18, -12,  -6,
+          0,   6,  12,  18,  24,  30,  35,  40,  45,  49,  53,  56,  59,  61,  62,  63
+    ];
+    let dir_y: [i32<-64..64>; 64] = [
+          0,   6,  12,  18,  24,  30,  35,  40,  45,  49,  53,  56,  59,  61,  62,  63,
+         64,  63,  62,  61,  59,  56,  53,  49,  45,  40,  35,  30,  24,  18,  12,   6,
+          0,  -6, -12, -18, -24, -30, -35, -40, -45, -49, -53, -56, -59, -61, -62, -63,
+        -64, -63, -62, -61, -59, -56, -53, -49, -45, -40, -35, -30, -24, -18, -12,  -6
+    ];
+
+    // Игрок
+    let mut px: i32<64..448> = 96;
+    let mut py: i32<64..448> = 96;
+    let mut angle: i32<0..63> = 16;
+
+    // Массивы состояния для 10 зомби
+    let mut zx: [i32<64..448>; 10] =;
+    let mut zy: [i32<64..448>; 10] =;
+    let mut zhp: [i32<0..3>; 10] =;
+    let mut zflash: [i32<0..10>; 10] =;
+
+    // Начальный случайный спавн всех 10 зомби по карте
+    let mut init_i: i32<0..10> = 0;
+    while init_i < 10 {
+        let r: i32<0..1000> = veto_rand(100);
+        let sp: i32<0..7> = r & 7;
+        zx[init_i] = spawn_x[sp];
+        zy[init_i] = spawn_y[sp];
+        init_i = init_i + 1;
+    }
+
+    let mut recoil: i32<0..10> = 0;
+    let mut kills: i32<0..100> = 0;
 
     loop {
-        let key: i32<0..4> = gfx_poll_key();
-
-        // Y -> вверх
-        if key == 1 {
-            if y > 5 {
-                y = y - 5;
-            }
-        }
-        // G -> влево
-        if key == 2 {
-            if x > 5 {
-                x = x - 5;
-            }
-        }
-        // H -> вниз
-        if key == 3 {
-            if y < 595 {
-                y = y + 5;
-            }
-        }
-        // J -> вправо
-        if key == 4 {
-            if x < 795 {
-                x = x + 5;
-            }
+        if recoil > 0 {
+            recoil = recoil - 1;
         }
 
-        // Veto гарантирует, что точка никогда не вылетит за границы экрана
-        prove(x >= 0);
-        prove(x <= 800);
-        prove(y >= 0);
-        prove(y <= 600);
+        // Поворот камеры (G/A — влево, J/D — вправо)
+        if gfx_key_down(2) == 1 {
+            angle = (angle + 63) & 63;
+        }
+        if gfx_key_down(4) == 1 {
+            angle = (angle + 1) & 63;
+        }
 
-        gfx_draw_point(x, y);
+        let vx: i32<-64..64> = dir_x[angle];
+        let vy: i32<-64..64> = dir_y[angle];
+
+        // Ходьба вперёд (Y/W)
+        if gfx_key_down(1) == 1 {
+            let nx: i32<0..512> = px + (vx >> 3);
+            let ny: i32<0..512> = py + (vy >> 3);
+            let cx: i32<0..7> = (nx >> 6) & 7;
+            let cy: i32<0..7> = (ny >> 6) & 7;
+            let cell: i32<0..63> = cy * 8 + cx;
+            if map[cell] == 0 {
+                if nx >= 64 {
+                    if nx <= 448 {
+                        px = nx;
+                    }
+                }
+                if ny >= 64 {
+                    if ny <= 448 {
+                        py = ny;
+                    }
+                }
+            }
+        }
+
+        // Ходьба назад (H/S)
+        if gfx_key_down(3) == 1 {
+            let bx: i32<0..512> = px - (vx >> 3);
+            let by: i32<0..512> = py - (vy >> 3);
+            let bcx: i32<0..7> = (bx >> 6) & 7;
+            let bcy: i32<0..7> = (by >> 6) & 7;
+            let bcell: i32<0..63> = bcy * 8 + bcx;
+            if map[bcell] == 0 {
+                if bx >= 64 {
+                    if bx <= 448 {
+                        px = bx;
+                    }
+                }
+                if by >= 64 {
+                    if by <= 448 {
+                        py = by;
+                    }
+                }
+            }
+        }
+
+        // Выстрел на SPACE
+        let mut fired: i32<0..1> = 0;
+        if gfx_key_down(5) == 1 {
+            if recoil == 0 {
+                recoil = 8;
+                fired = 1;
+            }
+        }
+
+        gfx_clear();
+
+        // Ultra HD рендер: 400 лучей по 2 пикселя
+        let mut col: i32<0..400> = 0;
+        while col < 400 {
+            let offset: i32<0..15> = col / 25;
+            let ray_ang: i32<0..63> = (angle + 56 + offset) & 63;
+            let rdx: i32<-64..64> = dir_x[ray_ang];
+            let rdy: i32<-64..64> = dir_y[ray_ang];
+
+            let mut dist: i32<1..64> = 1;
+            let mut hit_dist: i32<1..64> = 64;
+            let mut hit: i32<0..1> = 0;
+
+            while dist < 64 {
+                if hit == 0 {
+                    let rx: i32<0..511> = (px + ((rdx * dist) >> 3)) & 511;
+                    let ry: i32<0..511> = (py + ((rdy * dist) >> 3)) & 511;
+                    let mx: i32<0..7> = rx >> 6;
+                    let my: i32<0..7> = ry >> 6;
+                    let midx: i32<0..63> = my * 8 + mx;
+
+                    if map[midx] == 1 {
+                        hit = 1;
+                        hit_dist = dist;
+                    }
+                }
+                dist = dist + 1;
+            }
+
+            let mut wall_h: i32<9..580> = 580 / hit_dist;
+            if wall_h < 9 {
+                wall_h = 9;
+            }
+            if wall_h > 580 {
+                wall_h = 580;
+            }
+
+            let top: i32<10..296> = 300 - (wall_h >> 1);
+            let bot: i32<304..590> = 300 + (wall_h >> 1);
+            let mut shade: i32<35..255> = 255 - (hit_dist * 3);
+            if shade < 35 {
+                shade = 35;
+            }
+
+            gfx_draw_vline(col, top, bot, shade, hit_dist);
+            col = col + 1;
+        }
+
+        // Обновление ИИ, проекция и попадания для всех 10 зомби
+        let mut zi: i32<0..10> = 0;
+        while zi < 10 {
+            let mut cur_x: i32<64..448> = zx[zi];
+            let mut cur_y: i32<64..448> = zy[zi];
+            let mut cur_hp: i32<0..3> = zhp[zi];
+            let mut cur_fl: i32<0..10> = zflash[zi];
+
+            if cur_fl > 0 {
+                cur_fl = cur_fl - 1;
+            }
+
+            let mut nx: i32<64..448> = cur_x;
+            if cur_x < px {
+                if cur_x < 446 {
+                    nx = cur_x + 1;
+                }
+            }
+            if cur_x > px {
+                if cur_x > 66 {
+                    nx = cur_x - 1;
+                }
+            }
+            let cx1: i32<0..7> = (nx >> 6) & 7;
+            let cy1: i32<0..7> = (cur_y >> 6) & 7;
+            let c1: i32<0..63> = cy1 * 8 + cx1;
+            if map[c1] == 0 {
+                cur_x = nx;
+            }
+
+            let mut ny: i32<64..448> = cur_y;
+            if cur_y < py {
+                if cur_y < 446 {
+                    ny = cur_y + 1;
+                }
+            }
+            if cur_y > py {
+                if cur_y > 66 {
+                    ny = cur_y - 1;
+                }
+            }
+            let cx2: i32<0..7> = (cur_x >> 6) & 7;
+            let cy2: i32<0..7> = (ny >> 6) & 7;
+            let c2: i32<0..63> = cy2 * 8 + cx2;
+            if map[c2] == 0 {
+                cur_y = ny;
+            }
+
+            let dx: i32<-512..512> = cur_x - px;
+            let dy: i32<-512..512> = cur_y - py;
+            let fwd: i32<-1024..1024> = (dx * vx + dy * vy) >> 6;
+            let right: i32<-1024..1024> = (dy * vx - dx * vy) >> 6;
+
+            if fwd > 8 {
+                let mut edist: i32<1..128> = fwd >> 3;
+                if edist > 64 {
+                    edist = 64;
+                }
+
+                let raw_sx: i32<-64000..64000> = 400 + ((right * 450) / fwd);
+                if raw_sx >= 0 {
+                    if raw_sx <= 800 {
+                        if edist <= 64 {
+                            gfx_draw_enemy(raw_sx, edist, cur_fl);
+                        }
+
+                        if fired == 1 {
+                            if raw_sx >= 340 {
+                                if raw_sx <= 460 {
+                                    cur_fl = 6;
+                                    if cur_hp > 1 {
+                                        cur_hp = cur_hp - 1;
+                                    } else {
+                                        cur_hp = 3;
+                                        if kills < 99 {
+                                            kills = kills + 1;
+                                        }
+                                        let rnd: i32<0..1000> = veto_rand(100);
+                                        let sp_idx: i32<0..7> = rnd & 7;
+                                        cur_x = spawn_x[sp_idx];
+                                        cur_y = spawn_y[sp_idx];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            zx[zi] = cur_x;
+            zy[zi] = cur_y;
+            zhp[zi] = cur_hp;
+            zflash[zi] = cur_fl;
+            zi = zi + 1;
+        }
+
+        gfx_draw_gun(recoil, kills);
+        gfx_present();
     }
 
     return 0;

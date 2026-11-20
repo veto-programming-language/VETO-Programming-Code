@@ -4,6 +4,8 @@ pub type ParamList = Vec<Param>;
 pub type FnList = Vec<Function>;
 pub type ConstList = Vec<ConstDef>;
 pub type StructList = Vec<StructDef>;
+pub type EnumList = Vec<EnumDef>;
+pub type EnumVariantList = Vec<(String, i64, Option<(i64, i64)>)>;
 pub type FieldDefList = Vec<FieldDef>;
 pub type FieldInitList = Vec<(String, Expr)>;
 pub type StrList = Vec<String>;
@@ -13,12 +15,29 @@ pub enum Expr {
     Number(i64),
     Str(String),
     Var(String),
+    EnumVal(String, String, Option<Box<Expr>>),
     Field(String, String),
     StructInit(String, FieldInitList),
     Index(String, Box<Expr>),
     Call(String, ExprList),
+    MethodCall(String, String, ExprList),
     UnaryNot(Box<Expr>),
     BinOp(Box<Expr>, String, Box<Expr>),
+}
+
+#[derive(Debug, Clone)]
+pub enum MatchPat {
+    Wildcard,
+    Num(i64),
+    Range(i64, i64),
+    EnumVal(String, String, Option<String>),
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchArm {
+    pub line: usize,
+    pub pat: MatchPat,
+    pub body: StmtList,
 }
 
 #[derive(Debug, Clone)]
@@ -92,6 +111,16 @@ pub enum Stmt {
         line: usize,
         cond: String,
     },
+    InlineAsm {
+        line: usize,
+        template: String,
+        clobbers: StrList,
+    },
+    Match {
+        line: usize,
+        expr: Expr,
+        arms: Vec<MatchArm>,
+    },
     Return {
         line: usize,
         expr: Expr,
@@ -99,8 +128,16 @@ pub enum Stmt {
 }
 
 #[derive(Debug, Clone)]
+pub struct EnumDef {
+    pub line: usize,
+    pub name: String,
+    pub variants: EnumVariantList,
+}
+
+#[derive(Debug, Clone)]
 pub struct FieldDef {
     pub name: String,
+    pub bit_width: Option<u8>,
     pub min_val: i64,
     pub max_val: i64,
 }
@@ -108,7 +145,9 @@ pub struct FieldDef {
 #[derive(Debug, Clone)]
 pub struct StructDef {
     pub line: usize,
+    pub attrs: StrList,
     pub name: String,
+    pub is_bitstruct: bool,
     pub fields: FieldDefList,
 }
 
@@ -116,6 +155,8 @@ pub struct StructDef {
 pub struct Param {
     pub name: String,
     pub type_name: String,
+    pub is_mut_ref: bool,
+    pub array_len: Option<usize>,
     pub min_val: i64,
     pub max_val: i64,
 }
@@ -132,6 +173,7 @@ pub struct ConstDef {
 #[derive(Debug, Clone)]
 pub struct Function {
     pub line: usize,
+    pub attrs: StrList,
     pub name: String,
     pub params: ParamList,
     pub ret_type: String,
@@ -140,10 +182,20 @@ pub struct Function {
     pub body: StmtList,
 }
 
+#[derive(Debug, Clone)]
+pub struct ArenaDef {
+    pub line: usize,
+    pub name: String,
+    pub elem_type: String,
+    pub capacity: usize,
+}
+
 #[derive(Debug, Default)]
 pub struct Program {
     pub imports: StrList,
+    pub enums: EnumList,
     pub structs: StructList,
+    pub arenas: Vec<ArenaDef>,
     pub consts: ConstList,
     pub functions: FnList,
 }

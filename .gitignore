@@ -1,5 +1,9 @@
 /target
-manual.csv
-train.csv
 *.db
-Cargo.toml.bak
+*.elf
+*.iso
+*.o
+*.s
+*.zip
+*.bak
+a.out

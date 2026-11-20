@@ -14,7 +14,7 @@ fn main() -> i32<0..255> {
         .unwrap_or("speed + boost < 200".into());
     let mut inq = Inquisitor::new(&cond, source);
     match inq.auto_prove() {
-        Verdict::Approve => println!("\n>>> одобрено"),
-        Verdict::Reject => println!("\n>>> отклонено"),
+        Verdict::Approve => println!("\n>>> approved"),
+        Verdict::Reject => println!("\n>>> rejected"),
     }
 }

@@ -1,0 +1,54 @@
+bitstruct PageEntry: u32 {
+    present: u1,
+    rw: u1,
+    user: u1,
+    reserved: u9,
+    frame: u20,
+}
+
+#[ensures(GdtReady)]
+fn init_gdt() -> () {
+    return;
+}
+
+#[requires(GdtReady)]
+#[ensures(IdtReady)]
+fn init_idt() -> () {
+    idt_init();
+    return;
+}
+
+#[mmio(0xB8000..0xB8FA0)]
+#[port(0x3D4..0x3D5)]
+#[terminates]
+#[max_cycles(80)]
+fn vga_banner() -> () {
+    vga_print(0, 0, "VETO 3.0 RING-0 KERNEL ONLINE", 0x0A);
+    vga_set_cursor(1, 0);
+    return;
+}
+
+#[requires(IdtReady)]
+fn enable_system_irqs() -> () {
+    cpu_sti();
+    return;
+}
+
+#[mmio(0xB8000..0xB8FA0)]
+#[port(0x3D4..0x3D5)]
+fn main() -> i32<0..0> {
+    let pte: PageEntry = PageEntry {
+        present: 1,
+        rw: 1,
+        user: 0,
+        reserved: 0,
+        frame: 256,
+    };
+    if pte.present == 1 {
+        init_gdt();
+        init_idt();
+        vga_banner();
+        enable_system_irqs();
+    }
+    return 0;
+}

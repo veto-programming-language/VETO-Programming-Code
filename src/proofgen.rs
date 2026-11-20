@@ -1,4 +1,3 @@
-// src/proofgen.rs
 use std::collections::HashMap;
 
 pub type Range = (i128, i128);
@@ -50,8 +49,6 @@ fn vars(e: &Expr, out: &mut Vec<String>) {
     }
 }
 
-// ───────────── лексер и парсер ─────────────
-
 fn lex(s: &str) -> Result<Vec<String>, String> {
     let cs: Vec<char> = s.chars().collect();
     let mut i = 0;
@@ -84,7 +81,7 @@ fn lex(s: &str) -> Result<Vec<String>, String> {
             out.push(c.to_string());
             i += 1;
         } else {
-            return Err(format!("неизвестный символ '{}'", c));
+            return Err(format!("unknown character '{}'", c));
         }
     }
     Ok(out)
@@ -132,7 +129,7 @@ impl P {
             Some(t) if t == "(" => {
                 let e = self.expr()?;
                 if self.next().as_deref() != Some(")") {
-                    return Err("нет закрывающей ')'".into());
+                    return Err("missing closing ')'".into());
                 }
                 Ok(e)
             }
@@ -150,8 +147,8 @@ impl P {
             {
                 Ok(Expr::Var(t))
             }
-            Some(t) => Err(format!("неожиданный токен '{}'", t)),
-            None => Err("выражение оборвано".into()),
+            Some(t) => Err(format!("unexpected token '{}'", t)),
+            None => Err("unexpected end of expression".into()),
         }
     }
 }
@@ -162,25 +159,23 @@ fn parse(cond: &str) -> Result<(Expr, String, Expr), String> {
         i: 0,
     };
     let lhs = p.expr()?;
-    let op = p.next().ok_or("нет оператора сравнения")?;
+    let op = p.next().ok_or("missing comparison operator")?;
     if !["<", "<=", ">", ">=", "==", "!="].contains(&op.as_str()) {
-        return Err(format!("ожидался оператор сравнения, найдено '{}'", op));
+        return Err(format!("expected comparison operator, found '{}'", op));
     }
     let rhs = p.expr()?;
     if p.i < p.t.len() {
-        return Err("лишние символы после условия".into());
+        return Err("trailing tokens after condition".into());
     }
     Ok((lhs, op, rhs))
 }
-
-// ───────────── интервальная арифметика ─────────────
 
 fn eval(e: &Expr, env: &HashMap<String, Range>, steps: &mut Vec<String>) -> Result<Range, String> {
     match e {
         Expr::Num(n) => Ok((*n, *n)),
         Expr::Var(v) => env.get(v).copied().ok_or_else(|| {
             format!(
-                "для «{}» не объявлены границы (нужен тип вида i32<lo..hi>)",
+                "no bounds declared for '{}' (requires type like i32<lo..hi>)",
                 v
             )
         }),
@@ -206,7 +201,6 @@ fn eval(e: &Expr, env: &HashMap<String, Range>, steps: &mut Vec<String>) -> Resu
     }
 }
 
-/// Границы переменных из исходника: ищем `имя: тип<lo..hi>`.
 pub fn ranges_from_source(src: &str) -> HashMap<String, Range> {
     let mut m = HashMap::new();
     for (idx, _) in src.match_indices(':') {
@@ -237,7 +231,6 @@ pub fn ranges_from_source(src: &str) -> HashMap<String, Range> {
     m
 }
 
-/// Главная функция: из условия из `prove(...)` и границ строит доказательство.
 pub fn prove(cond: &str, env: &HashMap<String, Range>) -> Report {
     let unknown = |why: String| Report {
         outcome: Outcome::Unknown,
@@ -246,7 +239,7 @@ pub fn prove(cond: &str, env: &HashMap<String, Range>) -> Report {
 
     let (lhs, op, rhs) = match parse(cond) {
         Ok(x) => x,
-        Err(e) => return unknown(format!("не смог разобрать условие: {}", e)),
+        Err(e) => return unknown(format!("failed to parse condition: {}", e)),
     };
     let mut steps = Vec::new();
     let (l1, h1) = match eval(&lhs, env, &mut steps) {
@@ -264,7 +257,7 @@ pub fn prove(cond: &str, env: &HashMap<String, Range>) -> Report {
         ">" => (l1 > h2, h1 <= l2),
         ">=" => (l1 >= h2, h1 < l2),
         "==" => (l1 == h1 && l2 == h2 && l1 == l2, h1 < l2 || h2 < l1),
-        _ => (h1 < l2 || h2 < l1, l1 == h1 && l2 == h2 && l1 == l2), // "!="
+        _ => (h1 < l2 || h2 < l1, l1 == h1 && l2 == h2 && l1 == l2),
     };
 
     let mut names = Vec::new();
@@ -280,36 +273,36 @@ pub fn prove(cond: &str, env: &HashMap<String, Range>) -> Report {
     let head = if given.is_empty() {
         String::new()
     } else {
-        format!("пусть {}; ", given.join(", "))
+        format!("given {}; ", given.join(", "))
     };
     let chain = if steps.is_empty() {
         String::new()
     } else {
-        format!("тогда {}; ", steps.join("; "))
+        format!("then {}; ", steps.join("; "))
     };
-    let bounds = format!("левая часть ∈ [{}..{}], правая ∈ [{}..{}]", l1, h1, l2, h2);
+    let bounds = format!("lhs ∈ [{}..{}], rhs ∈ [{}..{}]", l1, h1, l2, h2);
 
     if proven {
         let why = match op.as_str() {
-            "<" => format!("наибольшее значение {} меньше {}", h1, l2),
-            "<=" => format!("наибольшее значение {} не больше {}", h1, l2),
-            ">" => format!("наименьшее значение {} больше {}", l1, h2),
-            ">=" => format!("наименьшее значение {} не меньше {}", l1, h2),
-            _ => "интервалы согласованы".to_string(),
+            "<" => format!("maximum value {} is less than {}", h1, l2),
+            "<=" => format!("maximum value {} is at most {}", h1, l2),
+            ">" => format!("minimum value {} is greater than {}", l1, h2),
+            ">=" => format!("minimum value {} is at least {}", l1, h2),
+            _ => "intervals are consistent".to_string(),
         };
         Report {
             outcome: Outcome::Proven,
-            text: format!("{head}{chain}{bounds}; {why}, следовательно условие `{cond}` доказано"),
+            text: format!("{head}{chain}{bounds}; {why}, therefore `{cond}` is proven"),
         }
     } else if refuted {
         Report {
             outcome: Outcome::Refuted,
-            text: format!("{head}{chain}{bounds}; условие `{cond}` не выполняется ни при каких допустимых значениях"),
+            text: format!("{head}{chain}{bounds}; `{cond}` is refuted for all valid inputs"),
         }
     } else {
         Report {
             outcome: Outcome::Unknown,
-            text: format!("{head}{chain}{bounds}; интервалы пересекаются, условие `{cond}` может нарушиться (худший случай: левая часть {})", h1),
+            text: format!("{head}{chain}{bounds}; intervals overlap, `{cond}` may fail (worst case: lhs = {})", h1),
         }
     }
 }
@@ -326,4 +319,20 @@ mod tests {
         assert_eq!(prove("speed + boost < 100", &env).outcome, Outcome::Unknown);
         assert_eq!(prove("speed + boost < 0", &env).outcome, Outcome::Refuted);
     }
+}
+
+pub fn smt_simplify_diff(lhs: &str, rhs: &str, env: &HashMap<String, Range>) -> Option<Report> {
+    let l_clean = lhs.trim();
+    let r_clean = rhs.trim();
+    if l_clean == r_clean {
+        return Some(Report {
+            outcome: Outcome::Proven,
+            text: format!(
+                "SMT reflexivity axiom: `{}` is identically equal to `{}`",
+                l_clean, r_clean
+            ),
+        });
+    }
+    let _ = env;
+    None
 }

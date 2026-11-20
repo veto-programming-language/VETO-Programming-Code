@@ -1,141 +1,216 @@
 use std::env;
 use std::fs;
 use std::path::Path;
-use std::process::{Command, ExitCode};
+use std::process::{self, Command};
+use vetoc::compiler::{
+    compile_project_manifest, compile_source, compile_test_runner, compile_to_asm_arch,
+};
 
-use vetoc::compiler::{generate_c, Parser};
-use vetoc::lexer::Lexer;
+fn print_help() {
+    println!("vetoc 3.0.0 — Zero-Unsafe Systems Language & Static Range Verifier");
+    println!();
+    println!("USAGE:");
+    println!("  vetoc <input.vt | Veto.toml> [OPTIONS]");
+    println!();
+    println!("OPTIONS:");
+    println!("  -o <output>         Specify output binary or assembly path");
+    println!("  --kernel            Compile in freestanding Ring-0 kernel mode (Multiboot, 16KB stack check)");
+    println!("  --native-asm        Emit native assembly without GCC");
+    println!("  --arch <target>     Target architecture: x86 (default), x86_64, arm64");
+    println!("  --emit-c            Emit generated C code instead of compiling binary");
+    println!("  --test              Compile and run #[test] suite");
+    println!("  -h, --help          Show this help message");
+}
 
-type StrVec = Vec<String>;
-
-fn main() -> ExitCode {
-    let args: StrVec = env::args().collect();
-
-    let target_file = match args.get(1) {
-        Some(f) => f,
-        None => {
-            eprintln!("Использование: vetoc <файл.vt> [--kernel]");
-            return ExitCode::from(1);
+fn find_c_compiler() -> &'static str {
+    for cc in ["gcc", "clang", "cc"] {
+        if Command::new(cc).arg("--version").output().is_ok() {
+            return cc;
         }
-    };
+    }
+    "gcc"
+}
 
-    let is_kernel = args.iter().any(|a| a == "--kernel");
+fn main() {
+    let args: Vec<String> = env::args().skip(1).collect();
+    if args.is_empty() || args.iter().any(|a| a == "-h" || a == "--help") {
+        print_help();
+        return;
+    }
 
-    let source = match fs::read_to_string(target_file) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("[VETO] не могу прочитать {}: {}", target_file, e);
-            return ExitCode::from(1);
+    let mut input_path = String::new();
+    let mut output_path: Option<String> = None;
+    let mut is_kernel = false;
+    let mut native_asm = false;
+    let mut emit_c = false;
+    let mut run_tests = false;
+    let mut arch = "x86".to_string();
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-o" => {
+                if i + 1 < args.len() {
+                    output_path = Some(args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--kernel" => is_kernel = true,
+            "--native-asm" => native_asm = true,
+            "--emit-c" => emit_c = true,
+            "--test" => run_tests = true,
+            "--arch" => {
+                if i + 1 < args.len() {
+                    arch = args[i + 1].clone();
+                    i += 1;
+                }
+            }
+            other if !other.starts_with('-') => {
+                input_path = other.to_string();
+            }
+            unknown => {
+                eprintln!("[vetoc] unknown option: {}", unknown);
+                process::exit(1);
+            }
         }
-    };
+        i += 1;
+    }
 
-    // Определяем базовую директорию файла для работы модульных импортов `use "module.vt";`
-    let base_dir = Path::new(target_file)
+    if input_path.is_empty() {
+        eprintln!("[vetoc] no input file specified");
+        process::exit(1);
+    }
+
+    let path = Path::new(&input_path);
+    let base_dir = path
         .parent()
-        .and_then(|p| p.to_str())
-        .filter(|s| !s.is_empty())
+        .and_then(|p| {
+            if p.as_os_str().is_empty() {
+                None
+            } else {
+                p.to_str()
+            }
+        })
         .unwrap_or(".");
 
-    // 1. Токенизация (с трекингом номеров строк)
-    let mut lexer = Lexer::new(&source);
-    let tokens = lexer.tokenize();
+    let source = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[vetoc] cannot read '{}': {}", input_path, e);
+            process::exit(1);
+        }
+    };
 
-    // 2. Парсинг + рекурсивная загрузка модулей `use`
-    let mut parser = Parser::with_base_dir(tokens, base_dir);
-    let ast = parser.parse_main();
-
-    // 3. Верификация диапазонов + генерация C-кода
-    let c_code = generate_c(&ast, &source, is_kernel);
-
-    let temp_dir = env::temp_dir();
-    let temp_c = temp_dir.join("veto_out.c");
-    if let Err(e) = fs::write(&temp_c, c_code) {
-        eprintln!("[VETO] не могу записать {}: {}", temp_c.display(), e);
-        return ExitCode::from(1);
-    }
-
-    if is_kernel {
-        let linker_ld = temp_dir.join("veto_linker.ld");
-        let ld_script = r#"ENTRY(_start)
-SECTIONS {
-    . = 1M;
-    .text BLOCK(4K) : ALIGN(4K) {
-        *(.multiboot)
-        *(.text)
-    }
-    .rodata BLOCK(4K) : ALIGN(4K) { *(.rodata) }
-    .data BLOCK(4K) : ALIGN(4K) { *(.data) }
-    .bss BLOCK(4K) : ALIGN(4K) { *(COMMON) *(.bss) }
-}
-"#;
-        let _ = fs::write(&linker_ld, ld_script);
-
-        let gcc_result = Command::new("gcc")
-            .args([
-                "-m32",
-                "-mno-sse",
-                "-mno-sse2",
-                "-mno-mmx",
-                "-ffreestanding",
-                "-nostdlib",
-                "-fno-pie",
-                "-no-pie",
-                "-O2",
-                "-T",
-                linker_ld.to_str().unwrap(),
-                temp_c.to_str().unwrap(),
-                "-o",
-                "veto_kernel.elf",
-            ])
-            .status();
-
-        match gcc_result {
-            Ok(status) if status.success() => {
-                println!("[SUCCESS]: Ядро ОС собрано в ./veto_kernel.elf (0 проверок в рантайме)");
-                println!("Запуск в эмуляторе: qemu-system-i386 -kernel veto_kernel.elf");
-                ExitCode::SUCCESS
+    if input_path.ends_with("Veto.toml") {
+        match compile_project_manifest(&source, base_dir) {
+            Ok(c_code) => {
+                let out_c = output_path.unwrap_or_else(|| "veto_out.c".into());
+                fs::write(&out_c, c_code).expect("failed to write output");
+                println!("[vetoc] manifest build succeeded -> {}", out_c);
+                return;
             }
-            Ok(status) => {
-                eprintln!("[VETO] gcc (kernel) завершился с кодом {:?}", status.code());
-                ExitCode::from(1)
-            }
-            Err(e) => {
-                eprintln!("[VETO] не могу запустить gcc: {}", e);
-                ExitCode::from(1)
+            Err(errs) => {
+                for e in errs {
+                    eprintln!("{}", e);
+                }
+                process::exit(1);
             }
         }
-    } else {
-        let out_bin = if cfg!(windows) {
-            "veto_app.exe"
-        } else {
-            "veto_app"
-        };
+    }
 
-        let gcc_result = Command::new("gcc")
-            .args([
-                temp_c.to_str().unwrap(),
-                "-O3",
-                "-march=native",
-                "-fno-stack-protector",
-                "-lSDL2",
-                "-o",
-                out_bin,
-            ])
-            .status();
+    if run_tests {
+        match compile_test_runner(&source, &input_path, base_dir) {
+            Ok((c_code, count)) => {
+                let tmp_c = env::temp_dir().join("veto_test_runner.c");
+                let tmp_bin = env::temp_dir().join("veto_test_runner");
+                fs::write(&tmp_c, c_code).expect("failed to write temp test runner");
+                let cc = find_c_compiler();
+                let st = Command::new(cc)
+                    .arg(&tmp_c)
+                    .arg("-o")
+                    .arg(&tmp_bin)
+                    .status()
+                    .expect("failed to invoke C compiler");
+                if !st.success() {
+                    process::exit(1);
+                }
+                println!("[vetoc] running {} verified tests...", count);
+                let run_st = Command::new(&tmp_bin)
+                    .status()
+                    .expect("failed to execute test runner");
+                if !run_st.success() {
+                    process::exit(1);
+                }
+                return;
+            }
+            Err(errs) => {
+                for e in errs {
+                    eprintln!("{}", e);
+                }
+                process::exit(1);
+            }
+        }
+    }
 
-        match gcc_result {
-            Ok(status) if status.success() => {
-                println!("[SUCCESS]: собрано в ./{} (0 проверок в рантайме)", out_bin);
-                ExitCode::SUCCESS
+    if native_asm {
+        match compile_to_asm_arch(&source, &input_path, base_dir, is_kernel, &arch) {
+            Ok(asm) => {
+                let out_s = output_path.unwrap_or_else(|| "out.s".into());
+                fs::write(&out_s, asm).expect("failed to write assembly output");
+                println!("[vetoc] native {} assembly written -> {}", arch, out_s);
+                return;
             }
-            Ok(status) => {
-                eprintln!("[VETO] gcc завершился с кодом {:?}", status.code());
-                ExitCode::from(1)
+            Err(errs) => {
+                for e in errs {
+                    eprintln!("{}", e);
+                }
+                process::exit(1);
             }
-            Err(e) => {
-                eprintln!("[VETO] не могу запустить gcc: {}", e);
-                ExitCode::from(1)
+        }
+    }
+
+    match compile_source(&source, &input_path, base_dir, is_kernel) {
+        Ok(c_code) => {
+            if emit_c {
+                let out_c = output_path.unwrap_or_else(|| "out.c".into());
+                fs::write(&out_c, c_code).expect("failed to write C output");
+                println!("[vetoc] C output written -> {}", out_c);
+                return;
             }
+
+            let tmp_c = env::temp_dir().join("veto_build.c");
+            fs::write(&tmp_c, &c_code).expect("failed to write temp C file");
+
+            let out_bin = output_path.unwrap_or_else(|| {
+                if is_kernel {
+                    "kernel.elf".into()
+                } else {
+                    "a.out".into()
+                }
+            });
+
+            let cc = find_c_compiler();
+            let mut cmd = Command::new(cc);
+            cmd.arg(&tmp_c).arg("-O2").arg("-o").arg(&out_bin);
+
+            if is_kernel {
+                cmd.args(["-m32", "-ffreestanding", "-nostdlib", "-fno-pie"]);
+            } else if c_code.contains("SDL.h") {
+                cmd.arg("-lSDL2");
+            }
+
+            let status = cmd.status().expect("failed to invoke C compiler");
+            if !status.success() {
+                eprintln!("[vetoc] backend compilation failed");
+                process::exit(1);
+            }
+            println!("[vetoc] verified build succeeded -> {}", out_bin);
+        }
+        Err(errs) => {
+            for e in errs {
+                eprintln!("{}", e);
+            }
+            process::exit(1);
         }
     }
 }

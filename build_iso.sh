@@ -18,5 +18,5 @@ GRUB
 
 grub-mkrescue -o veto_os.iso iso_root
 rm -rf iso_root
-echo "[SUCCESS] Загрузочный образ создан: ./veto_os.iso"
-echo "Запуск в QEMU как CD-ROM: qemu-system-i386 -cdrom veto_os.iso -audiodev pa,id=snd0 -machine pcspk-audiodev=snd0"
+echo "[SUCCESS] Bootable ISO image created: ./veto_os.iso"
+echo "Boot in QEMU as CD-ROM: qemu-system-i386 -cdrom veto_os.iso -audiodev pa,id=snd0 -machine pcspk-audiodev=snd0"

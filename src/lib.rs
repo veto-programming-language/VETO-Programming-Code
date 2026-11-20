@@ -1,11 +1,15 @@
+pub mod asm_backend;
 pub mod ast;
 pub mod codegen;
 pub mod compiler;
+pub mod error;
 #[cfg(feature = "inquisitor")]
 pub mod inquisitor;
 #[cfg(feature = "inquisitor")]
 pub mod inquisitor_model;
 pub mod lexer;
+pub mod optimizer;
 pub mod parser;
 pub mod proofgen;
+pub mod typecheck;
 pub mod verifier;

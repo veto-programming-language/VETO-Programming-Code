@@ -7,12 +7,12 @@ fn main() {
     println!(
         "{}",
         if model.is_some() {
-            "[test] модель загружена"
+            "[test] model loaded"
         } else {
-            "[test] .bin не найден, работает эвристика"
+            "[test] .bin not found, using heuristic fallback"
         }
     );
-    println!("[test] формат: `1|текст` (ждём approve), `0|текст` (ждём veto)\n");
+    println!("[test] format: `1|text` (expect approve), `0|text` (expect veto)\n");
 
     let (mut total, mut ok) = (0usize, 0usize);
     let stdin = io::stdin();
@@ -63,25 +63,25 @@ fn main() {
                             if e { 1 } else { 0 },
                             text.replace('"', "\"\"")
                         );
-                        println!("      ^ записано в manual.csv");
+                        println!("      ^ recorded to manual.csv");
                     }
                 }
             }
             None => {
                 println!("{} conf={:.2}", verdict, conf);
-                print!("  вердикт верный? [y / n / Enter=пропуск] > ");
+                print!("  verdict correct? [y / n / Enter=skip] > ");
                 io::stdout().flush().ok();
                 let mut ans = String::new();
                 stdin.lock().read_line(&mut ans).ok();
                 if ans.trim() == "n" {
-                    let correct = if approve { 0 } else { 1 }; // раз вердикт неверный, метка обратная
+                    let correct = if approve { 0 } else { 1 };
                     if let Ok(mut f) = OpenOptions::new()
                         .create(true)
                         .append(true)
                         .open("manual.csv")
                     {
                         let _ = writeln!(f, "{},\"{}\"", correct, text.replace('"', "\"\""));
-                        println!("      ^ записано в manual.csv (метка {})", correct);
+                        println!("      ^ recorded to manual.csv (label {})", correct);
                     }
                 }
             }
@@ -89,7 +89,7 @@ fn main() {
     }
     if total > 0 {
         println!(
-            "\n[test] верно {}/{} ({:.0}%)",
+            "\n[test] accurate {}/{} ({:.0}%)",
             ok,
             total,
             100.0 * ok as f32 / total as f32

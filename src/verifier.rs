@@ -37,21 +37,37 @@ pub fn eval_expr_range(
             let key = format!("{}.{}", obj, field);
             env.get(&key)
                 .copied()
-                .ok_or_else(|| format!("неизвестное поле {}.{}", obj, field))?
+                .ok_or_else(|| format!("unknown field {}.{}", obj, field))?
         }
         Expr::StructInit(..) => (0, 0),
+        Expr::EnumVal(en, var, payload) => {
+            if let Some(pexpr) = payload {
+                let (pmin, pmax) = eval_expr_range(pexpr, env, arrays, sigs)?;
+                if let Some(&(cmin, cmax)) = env.get(&format!("__enum_payload_{}::{}", en, var)) {
+                    if pmin < cmin || pmax > cmax {
+                        return Err(format!(
+                            "variant {}::{} requires range <{}..{}>, got [{}..{}]",
+                            en, var, cmin, cmax, pmin, pmax
+                        ));
+                    }
+                }
+            }
+            env.get(&format!("{}::{}", en, var))
+                .copied()
+                .ok_or_else(|| format!("unknown variant {}::{}", en, var))?
+        }
         Expr::Var(v) => env
             .get(v)
             .copied()
-            .ok_or_else(|| format!("у переменной {} не задан диапазон", v))?,
+            .ok_or_else(|| format!("variable {} has no range bounds", v))?,
         Expr::Index(arr_name, idx_expr) => {
             let info = arrays
                 .get(arr_name)
-                .ok_or_else(|| format!("неизвестный массив {}", arr_name))?;
+                .ok_or_else(|| format!("unknown array {}", arr_name))?;
             let (idx_min, idx_max) = eval_expr_range(idx_expr, env, arrays, sigs)?;
             if idx_min < 0 || idx_max >= info.len as i128 {
                 return Err(format!(
-                    "выход за границы {}[0..{}]: [{}..{}]",
+                    "out of bounds access on {}[0..{}]: [{}..{}]",
                     arr_name,
                     info.len - 1,
                     idx_min,
@@ -60,13 +76,42 @@ pub fn eval_expr_range(
             }
             (info.elem_min, info.elem_max)
         }
+        Expr::MethodCall(obj, method, args) => {
+            let found_sig = sigs
+                .iter()
+                .find(|(k, _)| k.ends_with(&format!("__{}", method)))
+                .map(|(_, s)| s.clone());
+            let sig = found_sig.ok_or_else(|| format!("unknown method {}.{}", obj, method))?;
+            if args.len() + 1 != sig.params.len() {
+                return Err(format!(
+                    "method {}.{} expects {} arguments, got {}",
+                    obj,
+                    method,
+                    sig.params.len().saturating_sub(1),
+                    args.len()
+                ));
+            }
+            for (arg_expr, (p_name, p_min, p_max)) in args.iter().zip(sig.params.iter().skip(1)) {
+                if matches!(arg_expr, Expr::Str(..)) {
+                    continue;
+                }
+                let (a_min, a_max) = eval_expr_range(arg_expr, env, arrays, sigs)?;
+                if a_min < *p_min as i128 || a_max > *p_max as i128 {
+                    return Err(format!(
+                        "argument {} of {}.{} requires <{}..{}>, got [{}..{}]",
+                        p_name, obj, method, p_min, p_max, a_min, a_max
+                    ));
+                }
+            }
+            (sig.ret_min as i128, sig.ret_max as i128)
+        }
         Expr::Call(fn_name, args) => {
             let sig = sigs
                 .get(fn_name)
-                .ok_or_else(|| format!("неизвестная функция {}", fn_name))?;
+                .ok_or_else(|| format!("unknown function {}", fn_name))?;
             if args.len() != sig.params.len() {
                 return Err(format!(
-                    "функция {} ждёт {} аргументов, дано {}",
+                    "function {} expects {} arguments, got {}",
                     fn_name,
                     sig.params.len(),
                     args.len()
@@ -79,7 +124,7 @@ pub fn eval_expr_range(
                 let (a_min, a_max) = eval_expr_range(arg_expr, env, arrays, sigs)?;
                 if a_min < *p_min as i128 || a_max > *p_max as i128 {
                     return Err(format!(
-                        "аргумент {} в {} требует <{}..{}>, передан [{}..{}]",
+                        "argument {} of {} requires <{}..{}>, got [{}..{}]",
                         p_name, fn_name, p_min, p_max, a_min, a_max
                     ));
                 }
@@ -104,7 +149,7 @@ pub fn eval_expr_range(
                 "/" => {
                     if l2 <= 0 && h2 >= 0 {
                         return Err(format!(
-                            "возможно деление на ноль! Делитель в [{}..{}]",
+                            "possible division by zero! Divisor in [{}..{}]",
                             l2, h2
                         ));
                     }
@@ -113,29 +158,32 @@ pub fn eval_expr_range(
                 }
                 "%" => {
                     if l2 <= 0 && h2 >= 0 {
-                        return Err(format!(
-                            "остаток от деления на ноль! Делитель в [{}..{}]",
-                            l2, h2
-                        ));
+                        return Err(format!("modulo by zero! Divisor in [{}..{}]", l2, h2));
                     }
                     let m = l2.abs().max(h2.abs()) - 1;
-                    (-m, m)
+                    if l1 >= 0 {
+                        (0, m)
+                    } else {
+                        (-m, m)
+                    }
                 }
                 "<<" => {
                     if l2 < 0 || h2 > 30 {
-                        return Err(format!("небезопасный сдвиг влево [{}..{}]", l2, h2));
+                        return Err(format!("unsafe left shift [{}..{}]", l2, h2));
                     }
                     (l1 << l2, h1 << h2)
                 }
                 ">>" => {
                     if l2 < 0 || h2 > 30 {
-                        return Err(format!("небезопасный сдвиг вправо [{}..{}]", l2, h2));
+                        return Err(format!("unsafe right shift [{}..{}]", l2, h2));
                     }
                     let c = [l1 >> l2, l1 >> h2, h1 >> l2, h1 >> h2];
                     (*c.iter().min().unwrap(), *c.iter().max().unwrap())
                 }
                 "&" => {
-                    if l2 >= 0 && h2 >= 0 {
+                    if l1 >= 0 && l2 >= 0 {
+                        (0, h1.min(h2))
+                    } else if l2 >= 0 {
                         (0, h2)
                     } else {
                         (i32::MIN as i128, i32::MAX as i128)
@@ -155,13 +203,13 @@ pub fn eval_expr_range(
                     }
                 }
                 "<" | "<=" | ">" | ">=" | "==" | "!=" | "&&" | "||" => (0, 1),
-                _ => return Err(format!("неизвестный оператор {}", op)),
+                _ => return Err(format!("unknown operator {}", op)),
             }
         }
     };
-    if range.0 < i32::MIN as i128 || range.1 > i32::MAX as i128 {
+    if range.0 < i32::MIN as i128 || range.1 > u32::MAX as i128 {
         return Err(format!(
-            "возможно переполнение i32: [{}..{}]",
+            "possible integer overflow: [{}..{}]",
             range.0, range.1
         ));
     }
@@ -182,11 +230,51 @@ pub fn refine_envs(cond: &Expr, base_env: &EnvMap) -> (EnvMap, EnvMap) {
             Expr::Field(o, f) => Some(format!("{}.{}", o, f)),
             _ => None,
         };
-        if let (Some(var), Expr::Number(num)) = (var_opt, r.as_ref()) {
-            let var = &var;
-            if let Some(&(lo, hi)) = base_env.get(var) {
-                let c = *num as i128;
+        let r_var_opt = match r.as_ref() {
+            Expr::Var(v) => Some(v.clone()),
+            Expr::Field(o, f) => Some(format!("{}.{}", o, f)),
+            _ => None,
+        };
+        if let (Some(v1), Some(v2)) = (&var_opt, &r_var_opt) {
+            if let (Some(&(lo1, hi1)), Some(&(lo2, hi2))) = (base_env.get(v1), base_env.get(v2)) {
                 match op.as_str() {
+                    "<" => {
+                        then_env.insert(v1.clone(), (lo1, hi1.min(hi2 - 1)));
+                        then_env.insert(v2.clone(), (lo2.max(lo1 + 1), hi2));
+                    }
+                    "<=" => {
+                        then_env.insert(v1.clone(), (lo1, hi1.min(hi2)));
+                        then_env.insert(v2.clone(), (lo2.max(lo1), hi2));
+                    }
+                    ">" => {
+                        then_env.insert(v1.clone(), (lo1.max(lo2 + 1), hi1));
+                        then_env.insert(v2.clone(), (lo2, hi2.min(hi1 - 1)));
+                    }
+                    ">=" => {
+                        then_env.insert(v1.clone(), (lo1.max(lo2), hi1));
+                        then_env.insert(v2.clone(), (lo2, hi2.min(hi1)));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let norm = match (var_opt, l.as_ref(), r_var_opt, r.as_ref()) {
+            (Some(v), _, _, Expr::Number(n)) => Some((v, op.as_str(), *n as i128)),
+            (_, Expr::Number(n), Some(v), _) => {
+                let flipped = match op.as_str() {
+                    ">" => "<",
+                    ">=" => "<=",
+                    "<" => ">",
+                    "<=" => ">=",
+                    other => other,
+                };
+                Some((v, flipped, *n as i128))
+            }
+            _ => None,
+        };
+        if let Some((var, nop, c)) = norm {
+            if let Some(&(lo, hi)) = base_env.get(&var) {
+                match nop {
                     ">" => {
                         then_env.insert(var.clone(), (lo.max(c + 1), hi));
                         else_env.insert(var.clone(), (lo, hi.min(c)));
@@ -205,6 +293,21 @@ pub fn refine_envs(cond: &Expr, base_env: &EnvMap) -> (EnvMap, EnvMap) {
                     }
                     "==" => {
                         then_env.insert(var.clone(), (c, c));
+                        if c == lo && lo < hi {
+                            else_env.insert(var.clone(), (lo + 1, hi));
+                        }
+                        if c == hi && lo < hi {
+                            else_env.insert(var.clone(), (lo, hi - 1));
+                        }
+                    }
+                    "!=" => {
+                        if c == lo && lo < hi {
+                            then_env.insert(var.clone(), (lo + 1, hi));
+                        }
+                        if c == hi && lo < hi {
+                            then_env.insert(var.clone(), (lo, hi - 1));
+                        }
+                        else_env.insert(var.clone(), (c, c));
                     }
                     _ => {}
                 }

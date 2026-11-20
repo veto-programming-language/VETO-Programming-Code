@@ -1,0 +1,105 @@
+struct Player {
+    x: i32<256..3840>,
+    y: i32<256..3840>,
+    angle: i32<0..359>,
+    recoil: i32<0..10>,
+    kills: i32<0..100>,
+}
+
+#[inline]
+fn sin_fp(deg: i32<0..359>) -> i32<-256..256> {
+    if deg < 90 {
+        return (deg * 256) / 90;
+    }
+    if deg < 180 {
+        return ((180 - deg) * 256) / 90;
+    }
+    if deg < 270 {
+        return -(((deg - 180) * 256) / 90);
+    }
+    return -(((360 - deg) * 256) / 90);
+}
+
+#[inline]
+fn cos_fp(deg: i32<0..359>) -> i32<-256..256> {
+    let shifted: i32<0..359> = (deg + 90) % 360;
+    return sin_fp(shifted);
+}
+
+#[terminates]
+#[max_cycles(64)]
+fn cast_ray(
+    map: &[u8; 256],
+    px: i32<256..3840>,
+    py: i32<256..3840>,
+    ray_angle: i32<0..359>,
+) -> i32<1..64> {
+    let dx: i32<-64..64> = cos_fp(ray_angle) / 4;
+    let dy: i32<-64..64> = sin_fp(ray_angle) / 4;
+    let mut rx: i32<0..4095> = px;
+    let mut ry: i32<0..4095> = py;
+    let mut dist: i32<1..64> = 1;
+
+    while dist < 63 {
+        if rx >= 64 && rx <= 4030 && ry >= 64 && ry <= 4030 {
+            rx += dx;
+            ry += dy;
+            let gx: i32<0..15> = rx / 256;
+            let gy: i32<0..15> = ry / 256;
+            let idx: i32<0..255> = gy * 16 + gx;
+            if map[idx] > 0 {
+                return dist;
+            }
+        } else {
+            return dist;
+        }
+        dist += 1;
+    }
+    return dist;
+}
+
+fn render_frame(p: Player, map: &[u8; 256]) -> () {
+    gfx_clear();
+    for col in 0..400 {
+        let offset_deg: i32<-30..30> = (col * 60) / 400 - 30;
+        let ray_ang: i32<0..359> = (p.angle + 360 + offset_deg) % 360;
+        let dist: i32<1..64> = cast_ray(map, p.x, p.y, ray_ang);
+        let mut wall_h: i32<1..600> = 560 / dist;
+        if wall_h > 580 {
+            wall_h = 580;
+        }
+        let half_h: i32<0..290> = wall_h / 2;
+        let top: i32<10..300> = 300 - half_h;
+        let bot: i32<300..590> = 300 + half_h;
+        let mut shade: i32<30..255> = 255 - dist * 3;
+        if shade < 30 {
+            shade = 30;
+        }
+        gfx_draw_vline(col, top, bot, shade, dist);
+    }
+    gfx_draw_gun(p.recoil, p.kills);
+    gfx_present();
+    return;
+}
+
+fn main() -> i32<0..0> {
+    gfx_open(800, 600);
+    let mut map: [u8; 256] = [0; 256];
+    for i in 0..16 {
+        map[i] = 1;
+        map[240 + i] = 1;
+        map[i * 16] = 1;
+        map[i * 16 + 15] = 1;
+    }
+    let player: Player = Player {
+        x: 512,
+        y: 512,
+        angle: 45,
+        recoil: 0,
+        kills: 0,
+    };
+    loop {
+        render_frame(player, &map);
+    }
+    return 0;
+}

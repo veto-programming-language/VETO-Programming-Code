@@ -1,0 +1,30 @@
+struct AstNode {
+    opcode: u8,
+    operand: i32<0..4095>,
+}
+
+arena CompilerArena<AstNode, 512>;
+
+comptime fn status_mask() -> u32 {
+    return (1 << 8) - 1;
+}
+
+fn lookup_node(valid: bool) -> Option<u8<0..254>> {
+    if valid {
+        return Some(77);
+    }
+    return None;
+}
+
+fn main() -> i32<0..511> {
+    let _mask: u32 = comptime status_mask();
+    let id: i32<0..511> = CompilerArena.alloc(AstNode {
+        opcode: 12,
+        operand: 1024,
+    });
+    let opt: Option<u8<0..254>> = lookup_node(true);
+    if opt >= 0 {
+        return id;
+    }
+    return 0;
+}

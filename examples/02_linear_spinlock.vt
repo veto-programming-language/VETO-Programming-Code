@@ -1,0 +1,27 @@
+#[linear]
+struct SpinLockGuard {
+    cpu_id: u8,
+}
+
+fn lock_acquire(cpu: u8) -> SpinLockGuard {
+    return SpinLockGuard { cpu_id: cpu };
+}
+
+#[consume]
+fn lock_release(guard: SpinLockGuard) -> () {
+    return;
+}
+
+#[irq_safe]
+#[no_alloc]
+#[lock_free]
+fn fast_irq_counter(ticks: u32<0..1000000>) -> u32 {
+    return ticks + 1;
+}
+
+fn main() -> i32<0..0> {
+    let guard: SpinLockGuard = lock_acquire(0);
+    let _t: u32 = fast_irq_counter(42);
+    lock_release(guard);
+    return 0;
+}

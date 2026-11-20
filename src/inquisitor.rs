@@ -1,8 +1,8 @@
 #![allow(unreachable_code)]
-// src/inquisitor.rs
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::proofgen::{self, Outcome};
@@ -11,7 +11,10 @@ use crate::proofgen::{self, Outcome};
 use crate::inquisitor_model::{heuristic_judge, MiniModel};
 
 const WEEK_SECS: i64 = 604_800;
-const DB_PATH: &str = "vetoc_inquisitor.db";
+
+fn db_path() -> PathBuf {
+    std::env::temp_dir().join("vetoc_inquisitor.db")
+}
 
 pub struct Inquisitor {
     conn: Connection,
@@ -36,10 +39,8 @@ fn now_secs() -> i64 {
 }
 
 impl Inquisitor {
-    // ───────────────────────── конструктор и хранилище ─────────────────────────
-
     pub fn new(reason: impl AsRef<str>, code_context: impl AsRef<str>) -> Self {
-        let conn = Connection::open(DB_PATH).expect("не открылась БД инквизитора");
+        let conn = Connection::open(db_path()).expect("failed to open Inquisitor database");
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS sins (
                  id INTEGER PRIMARY KEY,
@@ -52,7 +53,7 @@ impl Inquisitor {
                  ts INTEGER NOT NULL
              );",
         )
-        .expect("не создались таблицы");
+        .expect("failed to initialize Inquisitor tables");
 
         Self {
             conn,
@@ -64,7 +65,6 @@ impl Inquisitor {
         }
     }
 
-    /// Ключ участка кода: FNV-1a от (reason + контекст).
     fn key(&self) -> String {
         let mut h: u64 = 0xcbf29ce484222325;
         for b in self
@@ -123,106 +123,98 @@ impl Inquisitor {
             .ok()
             .flatten();
         if let Some(e) = past {
-            println!("  Я помню твою прошлую отмазку: «{}». Не повторяйся.", e);
+            println!(
+                "  I remember your previous excuse: \"{}\". Do not repeat it.",
+                e
+            );
         }
     }
 
-    // ───────────────────────────── оценка аргумента ─────────────────────────────
-
-    /// Локальная оценка. ВРЕМЕННАЯ эвристика (без MiniModel), чтобы всё работало.
+    #[cfg(feature = "inquisitor")]
     fn local_judge(&self, proof: &str) -> (bool, f32) {
         match &self.model {
             Some(m) => m.judge(proof),
-            None => heuristic_judge(proof), // если src/inquisitor_model.bin не найден
+            None => heuristic_judge(proof),
         }
     }
 
-    /// Саркастичные реплики на разные типы отмазок.
+    #[cfg(not(feature = "inquisitor"))]
+    fn local_judge(&self, proof: &str) -> (bool, f32) {
+        let ok = proof.len() >= 25 && proof.chars().any(|c| c.is_ascii_digit());
+        (ok, if ok { 0.86 } else { 0.2 })
+    }
+
     fn mock_reply(&self, proof: &str) -> &'static str {
         let p = proof.to_lowercase();
 
-        // Явные отмазки — жёстко
-        if p.contains("хз") || p.contains("не знаю") || p.contains("не уверен") {
-            return "«Не знаю» — это не доказательство, это признание в некомпетентности. \
-                    Компилятор не гадает. Докажи или иди читай учебник по дискретке.";
+        if p.contains("idk") || p.contains("don't know") || p.contains("not sure") {
+            return "\"I don't know\" is not a proof—it is a confession. \
+                    A compiler does not guess. Prove the bounds or narrow your types.";
         }
-        if p.contains("работает") || p.contains("проверял") || p.contains("тестировал")
-        {
-            return "«Работает у меня на машине» — это не математика, это лотерея. \
-                    У меня на машине твой код упадёт при первом же edge case. Докажи формально.";
+        if p.contains("works") || p.contains("tested") || p.contains("my machine") {
+            return "\"It works on my machine\" is a lottery, not mathematics. \
+                    It will fault on the first edge case. Give me formal bounds.";
         }
-        if p.contains("честно") || p.contains("поверь") || p.contains("доверься")
-        {
-            return "Я не верю. Я — компилятор. У меня нет веры, у меня есть только аксиомы. \
-                    Дай мне аксиомы, а не слово чести.";
+        if p.contains("trust") || p.contains("promise") || p.contains("honestly") {
+            return "I do not trust. I am a compiler. I run on axioms, not promises. \
+                    Show me the interval invariants.";
         }
-        if p.contains("вроде") || p.contains("наверное") || p.contains("кажется")
-        {
-            return "«Вроде» и «наверное» — это язык для обсуждения погоды, не безопасности памяти. \
-                    Мне нужна уверенность, а не догадки.";
+        if p.contains("maybe") || p.contains("probably") || p.contains("guess") {
+            return "\"Maybe\" and \"probably\" belong in weather forecasts, not Ring-0 memory safety. \
+                    Provide exact lower and upper bounds.";
         }
 
-        // Слишком короткие аргументы
         if proof.len() < 20 {
-            return "Это не доказательство, это заголовок. Разверни мысль, покажи границы, \
-                    покажи переход. Три слова — это не аргумент.";
+            return "That is a headline, not a proof. State the variable ranges, \
+                    the arithmetic step, and why the threshold holds.";
         }
 
-        // Есть цифры, но нет логики — придираемся
         let has_digits = p.chars().any(|c| c.is_ascii_digit());
         let has_logic = p.contains("=>")
-            || p.contains("следовательно")
-            || p.contains("следует")
-            || p.contains("тогда")
-            || p.contains("отсюда")
-            || p.contains("∈")
-            || p.contains("∀")
-            || p.contains("⊂");
+            || p.contains("therefore")
+            || p.contains("implies")
+            || p.contains("hence")
+            || p.contains("since")
+            || p.contains("<=")
+            || p.contains(">=");
         if has_digits && !has_logic {
-            return "Ты кинул числа, но не связал их логикой. Числа без связки — это набор \
-                    цифр, а не доказательство. Где переход от посылки к следствию?";
+            return "You threw numbers at me without logical deduction. \
+                    Show the transition from premises to the target invariant.";
         }
         if has_logic && !has_digits {
-            return "Логика есть, но где границы? Докажи, что твои интервалы реальны, \
-                    а не выдуманы. Покажи конкретные min и max.";
+            return "Logic without bounds is empty. Prove the intervals are real—state the exact min and max.";
         }
 
-        // Общий сарказм для всего остального
-        "Слабовато. Модель говорит, что это ближе к отмазке, чем к теореме. \
-         Переформулируй: покажи границы переменных, покажи операцию, покажи результат, \
-         покажи сравнение с порогом. По пунктам, без воды."
+        "Too weak. That reads closer to an excuse than a theorem. \
+         Break it down step by step: variable ranges, operation bounds, and threshold comparison."
     }
 
-    // ─────────────────────────────── главный суд ────────────────────────────────
-
-    /// Суд без человека: границы берутся из исходника по шаблону `имя: тип<lo..hi>`.
     pub fn auto_prove(&mut self) -> Verdict {
         let env = proofgen::ranges_from_source(&self.code_context);
         self.auto_prove_with(&env)
     }
 
-    /// То же, но границы переменных передаёт компилятор (из разобранных `let`).
     pub fn auto_prove_with(&mut self, env: &HashMap<String, (i128, i128)>) -> Verdict {
         let rep = proofgen::prove(&self.reason, env);
-        println!("\n[VETO // AI-INQUISITOR] Участок: {}", self.reason);
+        println!("\n[VETO // AI-INQUISITOR] Target: {}", self.reason);
         match rep.outcome {
             Outcome::Proven => {
-                println!("  Доказательство (из типов):\n  {}", rep.text);
-                println!("[APPROVE] Условие доказано, сборка продолжается.");
+                println!("  Proof (from type intervals):\n  {}", rep.text);
+                println!("[APPROVE] Invariant proven, continuing build.");
                 Verdict::Approve
             }
             Outcome::Refuted => {
                 println!("  {}", rep.text);
-                println!("[VETO] Условие ложно по типам. Исправь код.");
+                println!("[VETO] Invariant refuted by type bounds. Fix your code.");
                 Verdict::Reject
             }
             Outcome::Unknown => {
-                println!("  Не доказано: {}", rep.text);
+                println!("  Unproven: {}", rep.text);
                 if std::env::var("VETOC_ALLOW_MANUAL").as_deref() == Ok("1") {
-                    println!("  VETOC_ALLOW_MANUAL=1 → открываю суд с человеком.");
+                    println!("  VETOC_ALLOW_MANUAL=1 -> opening interactive trial.");
                     self.interrogate()
                 } else {
-                    println!("[VETO] Условие может нарушиться. Сузь типы или измени условие.");
+                    println!("[VETO] Invariant may be violated. Narrow your type ranges or guard the condition.");
                     Verdict::Reject
                 }
             }
@@ -231,37 +223,37 @@ impl Inquisitor {
 
     pub fn interrogate(&mut self) -> Verdict {
         if self.cached_approve() {
-            println!("[VETO] условие уже доказано (кэш) → пропуск суда");
+            println!("[VETO] invariant already cached as proven -> skipping trial");
             return Verdict::Approve;
         }
 
         self.recall_past_sins();
-        println!("\n╔══════════════════════════════════════════════════════════════╗");
-        println!("║  [VETO // AI-INQUISITOR]                                     ║");
-        println!("║  Участок: {:<50}║", self.reason);
-        println!("╚══════════════════════════════════════════════════════════════╝");
-        println!("  В Veto нет рантайм-проверок. Ошибка = мёртвый процесс.");
-        println!("  Докажи, что здесь её нет. У тебя 3 попытки.\n");
+        println!("\n+--------------------------------------------------------------+");
+        println!("|  [VETO // AI-INQUISITOR]                                     |");
+        println!("|  Target: {:<52}|", self.reason);
+        println!("+--------------------------------------------------------------+");
+        println!("  VETO emits zero runtime bounds checks. A bug means a dead process.");
+        println!("  Prove safety statically. You have 3 attempts.\n");
 
         let mut attempts = 0usize;
         while attempts < 3 {
             print!(
-                "\n[попытка {}/3] Твой аргумент (или 'fix' для отмены) > ",
+                "\n[attempt {}/3] Your proof (or 'fix' to abort) > ",
                 attempts + 1
             );
             io::stdout().flush().ok();
 
             let mut input = String::new();
             if io::stdin().read_line(&mut input).is_err() {
-                eprintln!("[VETO] stdin сломался → отказ");
+                eprintln!("[VETO] stdin error -> reject");
                 return Verdict::Reject;
             }
             let proof = input.trim().to_string();
 
             if proof.is_empty() || proof == "fix" {
                 println!(
-                    "\n[VETO] «fix» — единственное честное слово за весь суд. \
-                         Иди переписывай код, я подожду."
+                    "\n[VETO] \"fix\" is the most honest word spoken in this court. \
+                     Go fix your code; I will wait."
                 );
                 return Verdict::Reject;
             }
@@ -274,41 +266,33 @@ impl Inquisitor {
             );
 
             if local_ok && conf >= 0.85 {
-                self.record_sin(&proof);
                 self.cache_approve();
                 println!(
-                    "\n[APPROVE] Ладно. На этот раз поверил. \
-                         Модель уверена на {:.0}%. Сборка продолжается.",
+                    "\n[APPROVE] Accepted. Model confidence: {:.0}%. Continuing compilation.",
                     conf * 100.0
                 );
                 return Verdict::Approve;
             }
-
-            // Отказ — с характером
             println!("\n[VETO] {}", self.mock_reply(&proof));
             if conf < 0.4 {
                 println!(
-                    "  (модель уверена на {:.0}%, что это отмазка. Ты не стараешься.)",
+                    "  (model is {:.0}% certain this is an excuse. Try harder.)",
                     (1.0 - conf) * 100.0
                 );
             }
-
             attempts += 1;
             self.excuse = Some(proof);
-
             if attempts == 2 {
-                println!("\n  Последняя попытка. Если снова провал — запомню на неделю.");
+                println!("\n  Final attempt. Fail again and your excuse is logged for 7 days.");
             }
         }
-
         if let Some(last) = self.excuse.clone() {
             self.record_sin(&last);
         }
-        println!("\n╔══════════════════════════════════════════════════════════════╗");
-        println!("║  [VETO] Три попытки исчерпаны.                               ║");
-        println!("║  Твоя последняя фраза записана в память на 7 дней.           ║");
-        println!("║  В следующий раз я её припомню.                              ║");
-        println!("╚══════════════════════════════════════════════════════════════╝");
+        println!("\n+--------------------------------------------------------------+");
+        println!("|  [VETO] All 3 attempts exhausted.                            |");
+        println!("|  Your last excuse has been recorded for 7 days.              |");
+        println!("+--------------------------------------------------------------+");
         Verdict::Reject
     }
 }

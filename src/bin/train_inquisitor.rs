@@ -1,13 +1,3 @@
-// src/bin/train_inquisitor.rs
-//
-// Отдельный бинарник для обучения MiniModel. В релиз vetoc не входит.
-// Использование:
-//     cargo run --release --bin train_inquisitor
-// Ожидает train.csv в CWD формата: label,text
-//     label = 1 (доказательство) или 0 (отмазка)
-//     text  = строка в кавычках (запятые внутри допустимы)
-// Пишет src/inquisitor_model.bin.
-
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
@@ -15,25 +5,24 @@ use std::time::Instant;
 use vetoc::inquisitor_model::{hash_bucket, tokenize, MiniModel, BUCKETS, HIDDEN};
 
 fn main() {
-    let csv = fs::read_to_string("train.csv")
-        .expect("[train] не могу открыть train.csv — положи его в CWD");
+    let csv =
+        fs::read_to_string("train.csv").expect("[train] cannot open train.csv — place it in CWD");
 
     let mut data: Vec<(u8, Vec<String>)> = Vec::new();
     for (ln, line) in csv.lines().enumerate() {
         if ln == 0 && line.trim_start().starts_with("label") {
-            continue; // шапка
+            continue;
         }
         if line.trim().is_empty() {
             continue;
         }
-        // split_once(',') — берём первую запятую. Если у тебя в тексте есть запятые,
-        // оборачивай text в кавычки и парсь так: label,"text, с запятыми"
+
         let (lbl, raw) = match line.split_once(',') {
             Some(x) => x,
             None => continue,
         };
         let label: u8 = lbl.trim().parse().unwrap_or(0);
-        // срезаем обрамляющие кавычки, если есть
+
         let text = raw.trim().trim_matches('"');
         if text.is_empty() {
             continue;
@@ -42,7 +31,7 @@ fn main() {
     }
 
     if data.is_empty() {
-        eprintln!("[train] датасет пустой — проверь train.csv");
+        eprintln!("[train] dataset is empty — check train.csv");
         return;
     }
     let pos = data.iter().filter(|(l, _)| *l == 1).count();
@@ -53,8 +42,6 @@ fn main() {
         data.len() - pos
     );
 
-    // Инициализация весов: маленькие детерминированные числа.
-    // Не рандом — чтобы результат сборки был воспроизводим у тебя и у друга.
     let mut model = MiniModel {
         emb: (0..BUCKETS * HIDDEN)
             .map(|i| ((i as f32) * 0.013).sin() * 0.1)
@@ -73,7 +60,6 @@ fn main() {
     for epoch in 0..epochs {
         let mut loss_sum = 0.0f32;
         for (label, tokens) in &data {
-            // ---- forward ----
             let mut hidden = model.b1.clone();
             let mut used: Vec<usize> = Vec::with_capacity(tokens.len());
             for w in tokens {
@@ -111,7 +97,6 @@ fn main() {
             let y = *label as usize;
             loss_sum -= p[y].max(1e-6).ln();
 
-            // ---- backward (softmax-CE) ----
             let mut d_out = [p[0], p[1]];
             d_out[y] -= 1.0;
 
@@ -126,13 +111,13 @@ fn main() {
             for k in 0..2 {
                 model.b2[k] -= lr * d_out[k];
             }
-            // ReLU mask
+
             for i in 0..HIDDEN {
                 if pre_relu[i] <= 0.0 {
                     d_hidden[i] = 0.0;
                 }
             }
-            // emb: усредняем градиент по всем использованным бакетам
+
             if !used.is_empty() {
                 let scale = lr * inv;
                 for b in &used {
@@ -158,9 +143,9 @@ fn main() {
 
     model
         .save(Path::new("src/inquisitor_model.bin"))
-        .expect("[train] не могу записать src/inquisitor_model.bin");
+        .expect("[train] cannot write src/inquisitor_model.bin");
     println!(
-        "[train] saved -> src/inquisitor_model.bin ({} байт)",
+        "[train] saved -> src/inquisitor_model.bin ({} bytes)",
         file_size()
     );
 }

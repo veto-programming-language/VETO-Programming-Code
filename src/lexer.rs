@@ -2,10 +2,17 @@
 pub enum TokenKind {
     Fn,
     Struct,
+    Arena,
+    Comptime,
+    Trait,
+    BitStruct,
+    Impl,
+    Enum,
     Let,
     Mut,
     Const,
     If,
+    Match,
     Else,
     For,
     In,
@@ -14,47 +21,52 @@ pub enum TokenKind {
     Break,
     Continue,
     Use,
+    Mod,
     Simd,
     Prove,
     Raw,
     Naked,
     Return,
+    BoolLit(bool),
     Ident(String),
     Number(i64),
     StrLit(String),
-    Comma,      // ,
-    Dot,        // .
-    Colon,      // :
-    ColonColon, // ::
-    Semicolon,  // ;
-    Assign,     // =
-    PlusEq,     // +=
-    MinusEq,    // -=
-    AmpEq,      // &=
-    PipeEq,     // |=
-    Bang,       // !
-    Less,       // <
-    Greater,    // >
-    Shl,        // <<
-    Shr,        // >>
-    Amp,        // &
-    Pipe,       // |
-    Caret,      // ^
-    AndAnd,     // &&
-    OrOr,       // ||
-    DotDot,     // ..
-    LParen,     // (
-    RParen,     // )
-    LBrace,     // {
-    RBrace,     // }
-    LBracket,   // [
-    RBracket,   // ]
-    Plus,       // +
-    Minus,      // -
-    Star,       // *
-    Slash,      // /
-    Percent,    // %
-    Arrow,      // ->
+    Hash,
+    Comma,
+    Dot,
+    Colon,
+    ColonColon,
+    Semicolon,
+    Assign,
+    PlusEq,
+    MinusEq,
+    AmpEq,
+    PipeEq,
+    Bang,
+    Less,
+    Greater,
+    Shl,
+    Shr,
+    Amp,
+    Pipe,
+    Caret,
+    AndAnd,
+    OrOr,
+    DotDot,
+    LParen,
+    RParen,
+    LBrace,
+    RBrace,
+    LBracket,
+    RBracket,
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Percent,
+    Arrow,
+    FatArrow,
+    Unknown(char),
     EOF,
 }
 
@@ -169,10 +181,17 @@ impl Lexer {
                     let kind = match word.as_str() {
                         "fn" => TokenKind::Fn,
                         "struct" => TokenKind::Struct,
+                        "arena" => TokenKind::Arena,
+                        "comptime" => TokenKind::Comptime,
+                        "trait" => TokenKind::Trait,
+                        "bitstruct" => TokenKind::BitStruct,
+                        "impl" => TokenKind::Impl,
+                        "enum" => TokenKind::Enum,
                         "let" => TokenKind::Let,
                         "mut" => TokenKind::Mut,
                         "const" => TokenKind::Const,
                         "if" => TokenKind::If,
+                        "match" => TokenKind::Match,
                         "else" => TokenKind::Else,
                         "for" => TokenKind::For,
                         "in" => TokenKind::In,
@@ -181,11 +200,14 @@ impl Lexer {
                         "break" => TokenKind::Break,
                         "continue" => TokenKind::Continue,
                         "use" => TokenKind::Use,
+                        "mod" => TokenKind::Mod,
                         "simd" => TokenKind::Simd,
                         "prove" => TokenKind::Prove,
                         "raw" => TokenKind::Raw,
                         "naked" => TokenKind::Naked,
                         "return" => TokenKind::Return,
+                        "true" => TokenKind::BoolLit(true),
+                        "false" => TokenKind::BoolLit(false),
                         _ => TokenKind::Ident(word),
                     };
                     tokens.push(Token {
@@ -325,6 +347,13 @@ impl Lexer {
                         line: cur_line,
                     });
                 }
+                '#' => {
+                    self.advance();
+                    tokens.push(Token {
+                        kind: TokenKind::Hash,
+                        line: cur_line,
+                    });
+                }
                 ',' => {
                     self.advance();
                     tokens.push(Token {
@@ -343,6 +372,14 @@ impl Lexer {
                     self.advance();
                     tokens.push(Token {
                         kind: TokenKind::Semicolon,
+                        line: cur_line,
+                    });
+                }
+                '=' if self.peek_offset(1) == Some('>') => {
+                    self.advance();
+                    self.advance();
+                    tokens.push(Token {
+                        kind: TokenKind::FatArrow,
                         line: cur_line,
                     });
                 }
@@ -472,8 +509,12 @@ impl Lexer {
                         line: cur_line,
                     });
                 }
-                _ => {
+                other => {
                     self.advance();
+                    tokens.push(Token {
+                        kind: TokenKind::Unknown(other),
+                        line: cur_line,
+                    });
                 }
             }
         }

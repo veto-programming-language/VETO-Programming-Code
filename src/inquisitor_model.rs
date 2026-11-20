@@ -1,11 +1,3 @@
-// src/inquisitor_model.rs
-//
-// Крошечная нейросеть-классификатор: "доказательство vs отмазка".
-// Архитектура: bag-of-hashed-words -> hidden(64, ReLU) -> out(2, softmax).
-// Веса: src/inquisitor_model.bin, ~66 КБ. Инференс — микросекунды, RAM — сотни КБ.
-//
-// Обучение: src/bin/train_inquisitor.rs (отдельный бинарник, разово).
-
 use std::fs;
 use std::path::Path;
 
@@ -13,22 +5,16 @@ pub const BUCKETS: usize = 256;
 pub const HIDDEN: usize = 64;
 pub const MODEL_PATH: &str = "src/inquisitor_model.bin";
 
-/// Размер файла модели в байтах. Используется для проверки целостности при load().
-const MODEL_BYTES: usize = BUCKETS * HIDDEN * 4   // emb
-                         + HIDDEN * 2 * 4          // w2
-                         + HIDDEN * 4              // b1
-                         + 2 * 4; // b2
+const MODEL_BYTES: usize = BUCKETS * HIDDEN * 4 + HIDDEN * 2 * 4 + HIDDEN * 4 + 2 * 4;
 
 pub struct MiniModel {
-    pub emb: Vec<f32>, // [BUCKETS][HIDDEN], row-major
-    pub w2: Vec<f32>,  // [HIDDEN][2]
-    pub b1: Vec<f32>,  // [HIDDEN]
+    pub emb: Vec<f32>,
+    pub w2: Vec<f32>,
+    pub b1: Vec<f32>,
     pub b2: [f32; 2],
 }
 
 impl MiniModel {
-    /// Пытается загрузить веса с диска. None — если файла нет или размер битый.
-    /// Никаких паник: вызывающий сам решает, что делать (обычно fallback на эвристику).
     pub fn load() -> Option<Self> {
         let data = fs::read(MODEL_PATH).ok()?;
         if data.len() != MODEL_BYTES {
@@ -56,7 +42,6 @@ impl MiniModel {
         })
     }
 
-    /// Сохраняет веса в MODEL_PATH. Формат — плоский LE f32, без заголовков.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         let mut out = Vec::with_capacity(MODEL_BYTES);
         for v in self.emb.iter().chain(self.w2.iter()).chain(self.b1.iter()) {
@@ -67,7 +52,6 @@ impl MiniModel {
         fs::write(path, out)
     }
 
-    /// Прямой проход. Возвращает два логита [p_veto, p_approve].
     pub fn forward(&self, text: &str) -> [f32; 2] {
         let mut hidden = self.b1.clone();
         let mut count = 0usize;
@@ -99,7 +83,6 @@ impl MiniModel {
         out
     }
 
-    /// Возвращает (approve, confidence). confidence in [0.5, 1.0].
     pub fn judge(&self, text: &str) -> (bool, f32) {
         let logits = self.forward(text);
         let m = logits[0].max(logits[1]);
@@ -110,8 +93,6 @@ impl MiniModel {
     }
 }
 
-/// Токенизатор: буквы/цифры/`_` — в один токен (lowercase),
-/// спецсимволы доказательств — отдельными токенами.
 pub fn tokenize(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
@@ -133,7 +114,6 @@ pub fn tokenize(text: &str) -> Vec<String> {
     out
 }
 
-/// FNV-1a: быстрый нестабильный хэш в 256 бакетов.
 pub fn hash_bucket(word: &str, buckets: usize) -> usize {
     let mut h: u64 = 0xcbf29ce484222325;
     for b in word.bytes() {
@@ -143,51 +123,49 @@ pub fn hash_bucket(word: &str, buckets: usize) -> usize {
     (h as usize) % buckets
 }
 
-/// Эвристический fallback, если модель не обучена (нет .bin).
-/// Не нейросеть — набор маркеров, но работает с первого запуска.
 pub fn heuristic_judge(text: &str) -> (bool, f32) {
     let t = text.to_lowercase();
 
     let strong = [
         "=>",
-        "следовательно",
-        "следует",
-        "пусть ",
-        "для всех",
-        "для любого",
+        "therefore",
+        "implies",
+        "let ",
+        "for all",
+        "for any",
         "∈",
         "⊂",
-        "теорема",
-        "доказано",
-        "интервал",
+        "theorem",
+        "proven",
+        "interval",
         "range",
         "0<=",
         "0 <=",
-        "мин",
-        "макс",
+        "min",
+        "max",
         "min",
         "max",
         "q.e.d",
-        "ч.т.д",
-        "тогда",
-        "отсюда",
+        "qed",
+        "then",
+        "hence",
     ];
     let weak = [
-        "хз",
-        "не знаю",
-        "работает",
-        "проверял",
-        "честно",
-        "поверь",
-        "доверься",
-        "норм",
-        "ок",
-        "вроде",
-        "наверное",
-        "точно работает",
-        "я тестировал",
-        "у меня работает",
-        "должно быть",
+        "idk",
+        "dont know",
+        "works",
+        "tested",
+        "honestly",
+        "believe",
+        "trust",
+        "fine",
+        "ok",
+        "seems",
+        "probably",
+        "definitely works",
+        "i tested",
+        "works for me",
+        "should be",
     ];
 
     let digits = t.chars().filter(|c| c.is_ascii_digit()).count();

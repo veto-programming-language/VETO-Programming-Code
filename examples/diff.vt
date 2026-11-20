@@ -1,7 +1,0 @@
-fn main() -> i32<0..100> {
-    let hi: i32<50..80> = 70;
-    let lo: i32<10..40> = 20;
-    prove(hi - lo > 0);
-    prove(hi - lo < 100);
-    return hi - lo;
-}

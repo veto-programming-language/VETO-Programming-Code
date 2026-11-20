@@ -76,6 +76,19 @@ pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
 }
+fn map_veto_type(tok: &Token) -> String {
+    match tok {
+        Token::Ident(s) => match s.as_str() {
+            "u8" => "uint8_t".to_string(),
+            "u16" => "uint16_t".to_string(),
+            "u32" => "uint32_t".to_string(),
+            "u64" => "uint64_t".to_string(),
+            "i64" => "int64_t".to_string(),
+            _ => "int32_t".to_string(),
+        },
+        _ => "int32_t".to_string(),
+    }
+}
 
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
@@ -346,12 +359,27 @@ impl Parser {
                 self.advance(); // '['
             }
             let mut elements = Vec::new();
-            while *self.peek() != Token::RBracket && *self.peek() != Token::EOF {
-                if *self.peek() == Token::Comma {
-                    self.advance();
-                    continue;
+            if *self.peek() != Token::RBracket {
+                let first = self.parse_expr();
+                if *self.peek() == Token::Semicolon {
+                    self.advance(); // ';'
+                    let count = match self.advance() {
+                        Token::Number(n) if n > 0 => n as usize,
+                        other => panic!("Ожидалось количество повторов, найдено {:?}", other),
+                    };
+                    for _ in 0..count {
+                        elements.push(first.clone());
+                    }
+                } else {
+                    elements.push(first);
+                    while *self.peek() != Token::RBracket && *self.peek() != Token::EOF {
+                        if *self.peek() == Token::Comma {
+                            self.advance();
+                            continue;
+                        }
+                        elements.push(self.parse_expr());
+                    }
                 }
-                elements.push(self.parse_expr());
             }
             if *self.peek() == Token::RBracket {
                 self.advance(); // ']'
@@ -1066,21 +1094,79 @@ func.ret_min, func.ret_max, func.name, err
     }
 }
 
-pub fn generate_c(program: &Program, source: &str) -> String {
-    let mut c_out = String::from(
-        r#"#include <stdint.h>
+pub fn generate_c(program: &Program, source: &str, is_kernel: bool) -> String {
+    let mut c_out = if is_kernel {
+        String::from(
+            r#"#include <stdint.h>
+
+// Заголовок Multiboot1 для прямого запуска в QEMU (-kernel) или GRUB
+__attribute__((section(".multiboot"), used))
+static const uint32_t multiboot_header[] = {
+    0x1BADB002,
+    0x00000003,
+    -(0x1BADB002 + 0x00000003)
+};
+
+// Начальный стек ядра (16 КБ) и точка входа _start
+__asm__(
+    ".global _start\n"
+    "_start:\n"
+    "    mov $kernel_stack_top, %esp\n"
+    "    call main\n"
+    "    cli\n"
+    ".hang:\n"
+    "    hlt\n"
+    "    jmp .hang\n"
+);
+
+static uint8_t kernel_stack[16384] __attribute__((aligned(16)));
+uint8_t *kernel_stack_top = kernel_stack + sizeof(kernel_stack);
+
+// Прямая запись символа с цветом в текстовую видеопамять VGA (0xB8000, экран 80x25 = 2000 ячеек)
+int32_t vga_poke(int32_t idx, int32_t ch, int32_t color) {
+    volatile uint16_t *vga = (volatile uint16_t *)0xB8000;
+    vga[idx] = ((uint16_t)(color & 0xFF) << 8) | (uint16_t)(ch & 0xFF);
+    return 0;
+}
+
+// Запись и чтение аппаратных портов x86 (клавиатура, контроллер прерываний, VGA-курсор)
+int32_t port_out8(int32_t port, int32_t val) {
+    __asm__ volatile ("outb %0, %1" : : "a"((uint8_t)val), "Nd"((uint16_t)port));
+    return 0;
+}
+
+int32_t port_in8(int32_t port) {
+    uint8_t ret;
+    __asm__ volatile ("inb %1, %0" : "=a"(ret) : "Nd"((uint16_t)port));
+    return (int32_t)ret;
+}
+
+int32_t cpu_halt(void) {
+    __asm__ volatile ("hlt");
+    return 0;
+}
+
+"#,
+        )
+    } else {
+        String::from(
+            r#"#include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
+#if __has_include(<SDL2/SDL.h>)
 #include <SDL2/SDL.h>
+#else
+#include <SDL.h>
+#endif
 
 static SDL_Window *veto_win = NULL;
 static SDL_Renderer *veto_ren = NULL;
-static int32_t veto_zbuf;
+static int32_t veto_zbuf[400];
 
 int32_t gfx_open(int32_t w, int32_t h) {
     srand((unsigned int)time(NULL));
     SDL_Init(SDL_INIT_VIDEO);
-    veto_win = SDL_CreateWindow("VETO-DOOM // ULTRA HD (400 rays)", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, 0);
+    veto_win = SDL_CreateWindow("VETO Engine // Verified Runtime", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, 0);
     veto_ren = SDL_CreateRenderer(veto_win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     return 1;
 }
@@ -1201,10 +1287,50 @@ int32_t gfx_present(void) {
     SDL_Delay(16);
     return 0;
 }
+
 "#,
-    );
+        )
+    };
 
     let mut sigs: HashMap<String, FnSig> = HashMap::new();
+
+    // Системные контракты ядра ОС (никакого выхода за пределы видеопамяти 0..1999!)
+    sigs.insert(
+        "vga_poke".to_string(),
+        FnSig {
+            params: vec![
+                ("idx".into(), 0, 1999),
+                ("ch".into(), 0, 255),
+                ("color".into(), 0, 255),
+            ],
+            ret_min: 0,
+            ret_max: 0,
+        },
+    );
+    sigs.insert(
+        "port_out8".to_string(),
+        FnSig {
+            params: vec![("port".into(), 0, 65535), ("val".into(), 0, 255)],
+            ret_min: 0,
+            ret_max: 0,
+        },
+    );
+    sigs.insert(
+        "port_in8".to_string(),
+        FnSig {
+            params: vec![("port".into(), 0, 65535)],
+            ret_min: 0,
+            ret_max: 255,
+        },
+    );
+    sigs.insert(
+        "cpu_halt".to_string(),
+        FnSig {
+            params: vec![],
+            ret_min: 0,
+            ret_max: 0,
+        },
+    );
 
     sigs.insert(
         "gfx_open".to_string(),

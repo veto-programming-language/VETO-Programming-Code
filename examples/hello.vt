@@ -1,6 +1,0 @@
-fn main() -> i32<0..255> {
-    let speed: i32<0..100> = 40;
-    let boost: i32<0..50> = 25;
-    prove(speed + boost < 200);
-    return speed + boost;
-}

@@ -1,50 +1,38 @@
-// VETO KERNEL v0.1 — Настоящее загрузочное ядро ОС без стандартной библиотеки!
+// VETO KERNEL v0.2 — Системный API ядра (VGA строки, курсор, порты 0x60, 0xB8000)
 
-fn clear_screen(bg_color: u8<0..255>) -> i32<0..0> {
+fn clear_screen(color: u8<0..255>) -> i32<0..0> {
     let mut i: i32<0..2000> = 0;
     while i < 2000 {
-        // 32 = пробел (ASCII). Veto гарантирует, что i ∈ [0..1999]!
-        vga_poke(i, 32, bg_color);
+        vga_poke(i, 32, color);
         i = i + 1;
     }
     return 0;
 }
 
 fn main() -> i32<0..0> {
-    // Цвет 0x0A = ярко-зелёный текст на чёрном фоне
-    let green: u8<0..255> = 10;
-    let cyan: u8<0..255> = 11;
-    clear_screen(green);
+    clear_screen(0x0A);
 
-    // Печатаем баннер "VETO OS" по ASCII-кодам в 1-ю строку экрана (смещение 82..)
-    vga_poke(82, 86, green); // 'V'
-    vga_poke(83, 69, green); // 'E'
-    vga_poke(84, 84, green); // 'T'
-    vga_poke(85, 79, green); // 'O'
-    vga_poke(86, 32, green); // ' '
-    vga_poke(87, 79, cyan);  // 'O'
-    vga_poke(88, 83, cyan);  // 'S'
+    vga_print(1, 2, "========================================", 0x0A);
+    vga_print(2, 2, "  VETO OS KERNEL v0.2 // BARE METAL     ", 0x0B);
+    vga_print(3, 2, "  Verified Memory & Zero Runtime Checks ", 0x07);
+    vga_print(4, 2, "========================================", 0x0A);
+    vga_print(6, 2, "veto@kernel:~$ ", 0x0E);
+    vga_set_cursor(6, 17);
 
-    // Подсказка "KEY:" на 3-й строке (смещение 242..)
-    vga_poke(242, 75, green); // 'K'
-    vga_poke(243, 69, green); // 'E'
-    vga_poke(244, 89, green); // 'Y'
-    vga_poke(245, 58, green); // ':'
-
-    // Главный цикл ядра: опрашиваем контроллер клавиатуры PS/2 (порт 0x60 = 96)
-    let mut cursor: i32<247..310> = 247;
+    let mut col: i32<17..78> = 17;
     loop {
-        let scancode: u8<0..255> = port_in8(96);
-        // Если нажата клавиша (scancode < 128 и > 0), рисуем символ на экране
+        let scancode: u8<0..255> = port_in8(0x60);
         if scancode > 0 {
             if scancode < 80 {
                 let ch: u8<33..126> = scancode + 33;
-                vga_poke(cursor, ch, cyan);
-                if cursor < 309 {
-                    cursor = cursor + 1;
+                let idx: i32<480..559> = 6 * 80 + col;
+                vga_poke(idx, ch, 0x0F);
+                if col < 77 {
+                    col = col + 1;
                 } else {
-                    cursor = 247;
+                    col = 17;
                 }
+                vga_set_cursor(6, col);
             }
         }
         cpu_halt();

@@ -17,6 +17,7 @@ pub enum Token {
     Return,
     Ident(String),
     Number(i64),
+    StrLit(String),
     Comma,      // ,
     Colon,      // :
     ColonColon, // ::
@@ -29,6 +30,7 @@ pub enum Token {
     Shr,        // >>
     Amp,        // &
     Pipe,       // |
+    Caret,      // ^
     DotDot,     // ..
     LParen,     // (
     RParen,     // )
@@ -83,6 +85,18 @@ impl Lexer {
                         self.advance();
                     }
                 }
+                '"' => {
+                    self.advance(); // открывающая '"'
+                    let mut s = String::new();
+                    while let Some(c) = self.peek() {
+                        if c == '"' {
+                            self.advance();
+                            break;
+                        }
+                        s.push(self.advance().unwrap());
+                    }
+                    tokens.push(Token::StrLit(s));
+                }
                 c if c.is_alphabetic() || c == '_' => {
                     let mut word = String::new();
                     while let Some(c) = self.peek() {
@@ -112,11 +126,31 @@ impl Lexer {
                     };
                     tokens.push(token);
                 }
+                '0' if matches!(self.input.get(self.pos + 1), Some('x') | Some('X')) => {
+                    self.advance(); // '0'
+                    self.advance(); // 'x'
+                    let mut hex_str = String::new();
+                    while let Some(c) = self.peek() {
+                        if c.is_ascii_hexdigit() || c == '_' {
+                            let ch = self.advance().unwrap();
+                            if ch != '_' {
+                                hex_str.push(ch);
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    let val = i64::from_str_radix(&hex_str, 16).unwrap_or(0);
+                    tokens.push(Token::Number(val));
+                }
                 c if c.is_ascii_digit() => {
                     let mut num_str = String::new();
                     while let Some(c) = self.peek() {
-                        if c.is_ascii_digit() {
-                            num_str.push(self.advance().unwrap());
+                        if c.is_ascii_digit() || c == '_' {
+                            let ch = self.advance().unwrap();
+                            if ch != '_' {
+                                num_str.push(ch);
+                            }
                         } else {
                             break;
                         }
@@ -183,6 +217,10 @@ impl Lexer {
                 '|' => {
                     self.advance();
                     tokens.push(Token::Pipe);
+                }
+                '^' => {
+                    self.advance();
+                    tokens.push(Token::Caret);
                 }
                 '(' => {
                     self.advance();

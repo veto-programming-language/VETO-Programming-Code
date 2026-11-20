@@ -1,37 +1,50 @@
 use std::env;
 use std::fs;
+use std::path::Path;
 use std::process::{Command, ExitCode};
 
 use vetoc::compiler::{generate_c, Parser};
 use vetoc::lexer::Lexer;
 
+type StrVec = Vec<String>;
+
 fn main() -> ExitCode {
-    let args: Vec<String> = env::args().collect();
+    let args: StrVec = env::args().collect();
 
-    if args.len() < 2 {
-        eprintln!("Использование: vetoc <файл.vt> [--kernel]");
-        return ExitCode::from(1);
-    }
-
-    let is_kernel = args.iter().any(|a| a == "--kernel");
-
-    let source = match fs::read_to_string(&args[1]) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("[VETO] не могу прочитать {}: {}", args[1], e);
+    let target_file = match args.get(1) {
+        Some(f) => f,
+        None => {
+            eprintln!("Использование: vetoc <файл.vt> [--kernel]");
             return ExitCode::from(1);
         }
     };
 
-    // 1. Токенизация
+    let is_kernel = args.iter().any(|a| a == "--kernel");
+
+    let source = match fs::read_to_string(target_file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[VETO] не могу прочитать {}: {}", target_file, e);
+            return ExitCode::from(1);
+        }
+    };
+
+    // Определяем базовую директорию файла для работы модульных импортов `use "module.vt";`
+    let base_dir = Path::new(target_file)
+        .parent()
+        .and_then(|p| p.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(".");
+
+    // 1. Токенизация (с трекингом номеров строк)
     let mut lexer = Lexer::new(&source);
     let tokens = lexer.tokenize();
 
-    // 2. Парсинг + проверка диапазонов
-    let mut parser = Parser::new(tokens);
+    // 2. Парсинг + рекурсивная загрузка модулей `use`
+    let mut parser = Parser::with_base_dir(tokens, base_dir);
     let ast = parser.parse_main();
 
-    // 3. Генерация C-кода (внутри — вызов Инквизитора на prove, под фичей)
+    // 3. Верификация диапазонов + генерация C-кода
     let c_code = generate_c(&ast, &source, is_kernel);
 
     let temp_dir = env::temp_dir();
@@ -42,7 +55,6 @@ fn main() -> ExitCode {
     }
 
     if is_kernel {
-        // Сборка загрузочного ядра x86 (Multiboot1) для QEMU / голого железа
         let linker_ld = temp_dir.join("veto_linker.ld");
         let ld_script = r#"ENTRY(_start)
 SECTIONS {
@@ -61,6 +73,9 @@ SECTIONS {
         let gcc_result = Command::new("gcc")
             .args([
                 "-m32",
+                "-mno-sse",
+                "-mno-sse2",
+                "-mno-mmx",
                 "-ffreestanding",
                 "-nostdlib",
                 "-fno-pie",

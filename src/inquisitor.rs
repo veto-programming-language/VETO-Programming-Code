@@ -1,3 +1,4 @@
+#![allow(unreachable_code)]
 // src/inquisitor.rs
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;

@@ -1,41 +1,169 @@
-// VETO KERNEL v0.2 — Системный API ядра (VGA строки, курсор, порты 0x60, 0xB8000)
+// VETO OS v1.1 — Модульное ядро Ring-0 со структурами (struct) и верификацией полей
+use "drivers.vt";
 
-fn clear_screen(color: u8<0..255>) -> i32<0..0> {
-    let mut i: i32<0..2000> = 0;
-    while i < 2000 {
-        vga_poke(i, 32, color);
-        i = i + 1;
-    }
-    return 0;
+struct KernelState {
+    row: i32<5..23>,
+    cmd_len: i32<0..32>,
+    ram_ok: u8<0..1>,
 }
 
 fn main() -> i32<0..0> {
-    clear_screen(0x0A);
+    idt_init();
+    drv_draw_hud();
 
-    vga_print(1, 2, "========================================", 0x0A);
-    vga_print(2, 2, "  VETO OS KERNEL v0.2 // BARE METAL     ", 0x0B);
-    vga_print(3, 2, "  Verified Memory & Zero Runtime Checks ", 0x07);
-    vga_print(4, 2, "========================================", 0x0A);
-    vga_print(6, 2, "veto@kernel:~$ ", 0x0E);
-    vga_set_cursor(6, 17);
+    let mut keymap: [u8<0..127>; 64] = [0; 64];
+    keymap[2] = 49;
+    keymap[3] = 50;
+    keymap[4] = 51;
+    keymap[5] = 52;
+    keymap[6] = 53;
+    keymap[7] = 54;
+    keymap[8] = 55;
+    keymap[9] = 56;
+    keymap[10] = 57;
+    keymap[11] = 48;
+    keymap[16] = 113;
+    keymap[17] = 119;
+    keymap[18] = 101;
+    keymap[19] = 114;
+    keymap[20] = 116;
+    keymap[21] = 121;
+    keymap[22] = 117;
+    keymap[23] = 105;
+    keymap[24] = 111;
+    keymap[25] = 112;
+    keymap[30] = 97;
+    keymap[31] = 115;
+    keymap[32] = 100;
+    keymap[33] = 102;
+    keymap[34] = 103;
+    keymap[35] = 104;
+    keymap[36] = 106;
+    keymap[37] = 107;
+    keymap[38] = 108;
+    keymap[44] = 122;
+    keymap[45] = 120;
+    keymap[46] = 99;
+    keymap[47] = 118;
+    keymap[48] = 98;
+    keymap[49] = 110;
+    keymap[50] = 109;
+    keymap[57] = 32;
 
-    let mut col: i32<17..78> = 17;
+    let mut cmd: [u8<0..127>; 32] = [0; 32];
+    let mut state: KernelState = KernelState {
+        row: 5,
+        cmd_len: 0,
+        ram_ok: 0,
+    };
+
+    vga_print(state.row, 2, "veto@ring0:~$ ", COLOR_PROMPT);
+    vga_set_cursor(state.row, 16);
+
     loop {
-        let scancode: u8<0..255> = port_in8(0x60);
-        if scancode > 0 {
-            if scancode < 80 {
-                let ch: u8<33..126> = scancode + 33;
-                let idx: i32<480..559> = 6 * 80 + col;
-                vga_poke(idx, ch, 0x0F);
-                if col < 77 {
-                    col = col + 1;
+        let ticks: i32<0..2147483647> = irq_ticks();
+        let secs: i32<-9999..9999> = (ticks / 100) % 10000;
+        if secs >= 0 {
+            drv_print_num4(0, 64, secs, 0x1E);
+        }
+
+        let sc: u8<0..255> = irq_pop_key();
+        if sc == 0 || sc >= 64 {
+            cpu_halt();
+            continue;
+        }
+
+        // Backspace (14)
+        if sc == 14 {
+            if state.cmd_len > 0 {
+                state.cmd_len -= 1;
+                cmd[state.cmd_len] = 0;
+                let erase_idx: i32<400..1999> = state.row * 80 + 16 + state.cmd_len;
+                vga_poke(erase_idx, 32, 0x0F);
+                vga_set_cursor(state.row, 16 + state.cmd_len);
+            }
+            continue;
+        }
+
+        // Enter (28)
+        if sc == 28 {
+            let mut out_row: i32<5..24> = state.row + 1;
+            if out_row > 22 {
+                drv_draw_hud();
+                out_row = 5;
+            }
+
+            if state.cmd_len == 5 && cmd[0] == 99 && cmd[1] == 108 {
+                drv_draw_hud();
+                out_row = 5;
+            }
+
+            if state.cmd_len == 4 && cmd[0] == 104 && cmd[1] == 101 {
+                vga_print(out_row, 4, "VETO OS v1.1 (struct KernelState verified) | Try: mem, beep, ticks, clear, reboot", 0x0A);
+                out_row += 1;
+            }
+
+            if state.cmd_len == 3 && cmd[0] == 109 && cmd[1] == 101 {
+                mem_write32(RAM_TEST_ADDR, 0x1337BEEF);
+                let val: i32<-2147483648..2147483647> = mem_read32(RAM_TEST_ADDR);
+                if val == 0x1337BEEF {
+                    state.ram_ok = 1;
+                    vga_print(out_row, 4, "[OK] Physical RAM 0x200000 verified (state.ram_ok = 1)", 0x0B);
                 } else {
-                    col = 17;
+                    vga_print(out_row, 4, "[FAIL] RAM verification error!", 0x0C);
                 }
-                vga_set_cursor(6, col);
+                out_row += 1;
+            }
+
+            if state.cmd_len == 4 && cmd[0] == 98 && cmd[1] == 101 {
+                vga_print(out_row, 4, "[PIT] Beeping PC Speaker via port 0x61...", 0x0E);
+                drv_speaker_beep();
+                out_row += 1;
+            }
+
+            if state.cmd_len == 5 && cmd[0] == 116 && cmd[1] == 105 {
+                let cur_t: i32<0..2147483647> = irq_ticks();
+                let mod_t: i32<-9999..9999> = cur_t % 10000;
+                vga_print(out_row, 4, "PIT IRQ0 Ticks (mod 10000): ", 0x0B);
+                if mod_t >= 0 {
+                    drv_print_num4(out_row, 32, mod_t, 0x0F);
+                }
+                out_row += 1;
+            }
+
+            if state.cmd_len == 6 && cmd[0] == 114 && cmd[1] == 101 {
+                vga_print(out_row, 4, "Rebooting CPU via 8042 controller (0x64)...", 0x0C);
+                cpu_reboot();
+            }
+
+            let mut zi: i32<0..32> = 0;
+            while zi < 32 {
+                cmd[zi] = 0;
+                zi += 1;
+            }
+            state.cmd_len = 0;
+
+            if out_row > 21 {
+                drv_draw_hud();
+                state.row = 5;
+            } else {
+                state.row = out_row;
+            }
+            vga_print(state.row, 2, "veto@ring0:~$ ", COLOR_PROMPT);
+            vga_set_cursor(state.row, 16);
+            continue;
+        }
+
+        if sc < 64 {
+            let ascii: u8<0..127> = keymap[sc];
+            if ascii > 0 && state.cmd_len < 31 {
+                cmd[state.cmd_len] = ascii;
+                let draw_idx: i32<400..1999> = state.row * 80 + 16 + state.cmd_len;
+                vga_poke(draw_idx, ascii, 0x0F);
+                state.cmd_len += 1;
+                vga_set_cursor(state.row, 16 + state.cmd_len);
             }
         }
-        cpu_halt();
     }
 
     return 0;

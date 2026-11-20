@@ -1,0 +1,63 @@
+// Модуль драйверов VETO OS v1.0 (VGA, PIT Speaker, Memory Constants)
+
+const VGA_CELLS: i32<0..2000> = 2000;
+const RAM_TEST_ADDR: i32<0..2147483647> = 0x200000;
+const COLOR_BANNER: u8<0..255> = 0x1F;
+const COLOR_PROMPT: u8<0..255> = 0x0E;
+
+fn drv_clear_screen(color: u8<0..255>) -> i32<0..0> {
+    let mut i: i32<0..2000> = 0;
+    while i < 2000 {
+        vga_poke(i, 32, color);
+        i += 1;
+    }
+    return 0;
+}
+
+fn drv_draw_hud() -> i32<0..0> {
+    drv_clear_screen(0x0A);
+    vga_print(0, 2, "VETO OS v1.0 [MODULAR RING-0 // IDT+PIC+PIT]          UPTIME:     s", COLOR_BANNER);
+    vga_print(2, 2, "Commands: help | mem | beep | ticks | clear | reboot", 0x0B);
+    vga_print(3, 2, "============================================================================", 0x08);
+    return 0;
+}
+
+fn drv_print_num4(row: i32<0..24>, col: i32<0..75>, val: i32<0..9999>, color: u8<0..255>) -> i32<0..0> {
+    let d1: i32<-9..9> = (val / 1000) % 10;
+    let d2: i32<-9..9> = (val / 100) % 10;
+    let d3: i32<-9..9> = (val / 10) % 10;
+    let d4: i32<-9..9> = val % 10;
+
+    let base: i32<0..1995> = row * 80 + col;
+    vga_poke(base, d1 + 48, color);
+    vga_poke(base + 1, d2 + 48, color);
+    vga_poke(base + 2, d3 + 48, color);
+    vga_poke(base + 3, d4 + 48, color);
+    return 0;
+}
+
+fn drv_speaker_beep() -> i32<0..0> {
+    // Настройка канала 2 таймера PIT на частоту ~1000 Гц (1193180 / 1000 = 1193 = 0x04A9)
+    port_out8(0x43, 0xB6);
+    port_out8(0x42, 0xA9);
+    port_out8(0x42, 0x04);
+
+    // Включаем динамик через порт 0x61 (биты 0 и 1)
+    let tmp: u8<0..255> = port_in8(0x61);
+    port_out8(0x61, tmp | 3);
+
+    // Короткая задержка на 15 тиков таймера PIT (150 мс)
+    let start: i32<0..2147483647> = irq_ticks();
+    loop {
+        let now: i32<0..2147483647> = irq_ticks();
+        if now - start >= 15 {
+            break;
+        }
+        cpu_halt();
+    }
+
+    // Выключаем динамик
+    let off: u8<0..255> = port_in8(0x61);
+    port_out8(0x61, off & 0xFC);
+    return 0;
+}

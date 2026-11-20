@@ -1,10 +1,11 @@
-// src/lib.rs
-
+pub mod ast;
+pub mod codegen;
 pub mod compiler;
-pub mod lexer;
-pub mod proofgen;
-
 #[cfg(feature = "inquisitor")]
 pub mod inquisitor;
 #[cfg(feature = "inquisitor")]
 pub mod inquisitor_model;
+pub mod lexer;
+pub mod parser;
+pub mod proofgen;
+pub mod verifier;

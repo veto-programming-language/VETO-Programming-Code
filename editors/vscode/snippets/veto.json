@@ -146,5 +146,19 @@
       "}"
     ],
     "description": "Compile-time verified unit test"
+  },
+  "VETO Kernel Main": {
+    "prefix": "vkmain",
+    "body": [
+      "#[mmio(0xB8000..0xB8FA0)]",
+      "#[port(0x60..0x64)]",
+      "fn main() {",
+      "    $0",
+      "    loop {",
+      "        cpu_halt();",
+      "    }",
+      "}"
+    ],
+    "description": "Ring-0 Kernel entry point with VGA & Keyboard capabilities"
   }
 }

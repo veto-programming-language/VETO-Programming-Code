@@ -262,7 +262,7 @@ VETO can emit freestanding C11 or bypass GCC completely using its built-in Nativ
 
 Building & Installing from Source
 
-bash git clone https://github.com.git cd VETO-Programming-Code cargo install --path . --features inquisitor 
+bash git clone https://github.com/veto-programming-language/VETO-Programming-Code.git cd VETO-Programming-Code cargo install --path . --features inquisitor 
 
 CLI Usage
 

@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/veto-programming-language/VETO-Programming-Code.git"
+    "url": "https://github.com/veto-programming-language/VETO-Programming-Code#readme"
   },
   "engines": {
     "vscode": "^1.80.0"
@@ -46,11 +46,8 @@
       }
     ]
   },
-  "activationEvents": [
-    "onLanguage:veto"
-  ],
-  "homepage": "https://github.com",
+  "homepage": "https://github.com/veto-programming-language/VETO-Programming-Code#readme",
   "bugs": {
-    "url": "https://github.com"
+    "url": "https://github.com/veto-programming-language/VETO-Programming-Code/issues"
   }
 }

@@ -2,7 +2,7 @@
   "name": "veto-lang",
   "displayName": "Veto Language Support",
   "description": "Syntax highlighting, snippets, formatter, and language configuration for VETO 3.0 (Zero-Unsafe Systems Language)",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "veto-programming-language",
   "license": "MIT",
   "repository": {

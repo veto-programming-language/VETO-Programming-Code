@@ -1,4 +1,4 @@
-# VETO 3.0 — Zero-Unsafe, Formally Verified Systems Programming Language
+# VETO 3.3 — Zero-Unsafe, Formally Verified Systems Programming Language
 
 > **"No `unsafe` escape hatches. No runtime bounds checks. No silent stack overflows. Every invariant is mathematically proven before a single instruction is emitted."**
 

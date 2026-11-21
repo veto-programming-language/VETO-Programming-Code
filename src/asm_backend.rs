@@ -145,6 +145,7 @@ pub fn generate_x86_asm(program: &Program, is_kernel: bool) -> String {
         ctx.emit("cli");
         ctx.emit("movl $kernel_stack_top, %esp");
         ctx.emit("andl $-16, %esp");
+        ctx.emit("pushl %ebx");
         ctx.emit("call main");
         ctx.emit("cli");
         ctx.emit_raw(".L_halt:");
@@ -645,6 +646,26 @@ fn emit_expr(ctx: &mut AsmCtx, expr: &Expr, program: &Program) {
                 "mem_read8" if args.len() == 1 => {
                     emit_expr(ctx, &args[0], program);
                     ctx.emit("movzbl (%eax), %eax");
+                    return;
+                }
+                "mem_read32" if args.len() == 1 => {
+                    emit_expr(ctx, &args[0], program);
+                    ctx.emit("movl (%eax), %eax");
+                    return;
+                }
+                "mem_write32" if args.len() == 2 => {
+                    emit_expr(ctx, &args[0], program);
+                    ctx.emit("pushl %eax");
+                    emit_expr(ctx, &args[1], program);
+                    ctx.emit("popl %ecx");
+                    ctx.emit("movl %eax, (%ecx)");
+                    ctx.emit("xorl %eax, %eax");
+                    return;
+                }
+                "cpu_reboot" => {
+                    ctx.emit("movb $0xFE, %al");
+                    ctx.emit("outb %al, $0x64");
+                    ctx.emit("xorl %eax, %eax");
                     return;
                 }
                 "cpu_cli" => {

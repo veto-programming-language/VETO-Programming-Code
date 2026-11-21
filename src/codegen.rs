@@ -1033,6 +1033,57 @@ fn check_hw_contracts(
                 }
             }
         }
+        if matches!(name.as_str(), "vga_print" | "vga_poke") {
+            let ok = func.attrs.iter().any(|a| {
+                a.strip_prefix("mmio:")
+                    .and_then(|r| r.split_once(".."))
+                    .and_then(|(lo, hi)| Some((lo.parse::<i128>().ok()?, hi.parse::<i128>().ok()?)))
+                    .map(|(lo, hi)| lo <= 0xB8000 && hi >= 0xB8FA0)
+                    .unwrap_or(false)
+            });
+            if !ok {
+                bag.push(
+                    Stage::Verifier,
+                    file,
+                    line,
+                    format!("Call to '{}' is forbidden without #[mmio(0xB8000..0xB8FA0)] capability on function '{}'!", name, func.name),
+                );
+            }
+        }
+        if name == "vga_set_cursor" {
+            let ok = func.attrs.iter().any(|a| {
+                a.strip_prefix("port:")
+                    .and_then(|r| r.split_once(".."))
+                    .and_then(|(lo, hi)| Some((lo.parse::<i128>().ok()?, hi.parse::<i128>().ok()?)))
+                    .map(|(lo, hi)| lo <= 0x3D4 && hi >= 0x3D5)
+                    .unwrap_or(false)
+            });
+            if !ok {
+                bag.push(
+                    Stage::Verifier,
+                    file,
+                    line,
+                    format!("Call to 'vga_set_cursor' is forbidden without #[port(0x3D4..0x3D5)] capability on function '{}'!", func.name),
+                );
+            }
+        }
+        if name == "cpu_reboot" {
+            let ok = func.attrs.iter().any(|a| {
+                a.strip_prefix("port:")
+                    .and_then(|r| r.split_once(".."))
+                    .and_then(|(lo, hi)| Some((lo.parse::<i128>().ok()?, hi.parse::<i128>().ok()?)))
+                    .map(|(lo, hi)| lo <= 0x64 && hi >= 0x64)
+                    .unwrap_or(false)
+            });
+            if !ok {
+                bag.push(
+                    Stage::Verifier,
+                    file,
+                    line,
+                    format!("Call to 'cpu_reboot' is forbidden without #[port(0x64..0x64)] capability on function '{}'!", func.name),
+                );
+            }
+        }
     }
 }
 #[allow(clippy::too_many_arguments)]

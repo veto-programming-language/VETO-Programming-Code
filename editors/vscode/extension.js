@@ -10,11 +10,12 @@ function runVetoDiagnostics(doc, collection) {
     if (!doc || doc.languageId !== 'veto' || doc.uri.scheme !== 'file') return;
     const filePath = doc.uri.fsPath;
     const workDir = path.dirname(filePath);
-    const tmpInput = path.join(os.tmpdir(), 'veto_live_check.vt');
+    const tmpInput = path.join(workDir, '.veto_live_check.vt');
     fs.writeFileSync(tmpInput, doc.getText(), 'utf8');
 
     const env = Object.assign({}, process.env, { VETOC_ALLOW_MANUAL: '1' });
     execFile('vetoc', [tmpInput, '--kernel', '--native-asm', '-o', '/tmp/veto_ide_check.s'], { cwd: workDir, env }, (err, stdout, stderr) => {
+        try { fs.unlinkSync(tmpInput); } catch (_) {}
         const output = (stderr || '') + '\n' + (stdout || '');
         const diags = [];
         const regex = /\[(SYNTAX|TYPE|VETO|INQUISITOR)\s*\|\s*[^:\]]+:(\d+)\]:\s*(.+)/g;

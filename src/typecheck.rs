@@ -159,9 +159,10 @@ pub fn check_program(prog: &Program, file: &str, bag: &mut ErrorBag) {
     ] {
         fn_sigs.insert(name.into(), (vec![], VetoType::Int));
     }
+    fn_sigs.insert("vga_print".into(), (vec![(VetoType::Int, false), (VetoType::Int, false), (VetoType::Str, false), (VetoType::Int, false)], VetoType::Int));
     for (name, argc) in [
         ("vga_poke", 3),
-        ("vga_print", 4),
+
         ("vga_set_cursor", 2),
         ("port_out8", 2),
         ("port_in8", 1),

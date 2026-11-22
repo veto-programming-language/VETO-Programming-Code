@@ -604,3 +604,16 @@ fn test_ok_full_64bit_x86_64_and_arm64_control_flow() {
     assert!(arm64.contains("cbz x0,"));
     assert!(arm64.contains("stp x29, x30"));
 }
+
+#[test]
+fn test_err_str_in_arithmetic_blocked() {
+    assert_err_stage(
+        r#"
+        fn main() -> i32<0..100> {
+            let x: i32<0..100> = "hello" + 5;
+            return x;
+        }
+        "#,
+        Stage::TypeCheck,
+    );
+}

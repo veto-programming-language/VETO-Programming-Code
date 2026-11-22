@@ -8,6 +8,7 @@ pub type FnSigMap = HashMap<String, (Vec<(VetoType, bool)>, VetoType)>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VetoType {
     Int,
+    Str,
     Enum(String),
     Struct(String),
     Array(usize),
@@ -15,7 +16,9 @@ pub enum VetoType {
 
 impl VetoType {
     pub fn from_name(name: &str, structs: &StructMap, enums: &HashSet<String>) -> Self {
-        if enums.contains(name) {
+        if name == "str" {
+            VetoType::Str
+        } else if enums.contains(name) {
             VetoType::Enum(name.to_string())
         } else if structs.contains_key(name) {
             VetoType::Struct(name.to_string())
@@ -27,6 +30,7 @@ impl VetoType {
     pub fn label(&self) -> String {
         match self {
             VetoType::Int => "int (i32/u8)".to_string(),
+            VetoType::Str => "str".to_string(),
             VetoType::Enum(e) => format!("enum {}", e),
             VetoType::Struct(s) => format!("struct {}", s),
             VetoType::Array(n) => format!("array[{}]", n),
@@ -620,7 +624,8 @@ fn infer_expr(
     bag: &mut ErrorBag,
 ) -> VetoType {
     match expr {
-        Expr::Number(..) | Expr::Str(..) => VetoType::Int,
+        Expr::Number(..) => VetoType::Int,
+        Expr::Str(..) => VetoType::Str,
         Expr::EnumVal(en, var, payload) => {
             if let Some(pexpr) = payload {
                 let pt = infer_expr(pexpr, file, line, scopes, structs, fn_sigs, bag);
@@ -662,7 +667,7 @@ fn infer_expr(
                 );
                 VetoType::Int
             }
-            Some(VetoType::Array(_)) | Some(VetoType::Int) if field == "len" => VetoType::Int,
+            Some(VetoType::Array(_)) | Some(VetoType::Str) | Some(VetoType::Int) if field == "len" => VetoType::Int,
             Some(other) => {
                 bag.push(
                     Stage::TypeCheck,
